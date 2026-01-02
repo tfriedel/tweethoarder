@@ -1,9 +1,9 @@
-from twitterdump import hello
+from tweethoarder import hello
 
 
 def test_hello() -> None:
     result = hello()
-    expected = "Hello from twitterdump!"
+    expected = "Hello from tweethoarder!"
     assert result == expected
 
 

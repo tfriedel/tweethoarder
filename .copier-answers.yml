@@ -4,6 +4,6 @@ _src_path: gh:tfriedel/python-copier-template
 author_email: thomas.friedel@gmail.com
 author_name: Thomas Friedel
 description: Dump your twitter data (liks, bookmarks, ...) to files
-package_name: twitterdump
-project_name: twitterdump
+package_name: tweethoarder
+project_name: tweethoarder
 python_version: '3.13'

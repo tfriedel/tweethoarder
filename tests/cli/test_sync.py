@@ -1,0 +1,35 @@
+"""Tests for the sync CLI commands."""
+
+from typer.testing import CliRunner
+
+from tweethoarder.cli.main import app
+
+runner = CliRunner()
+
+
+def test_sync_likes_command_exists() -> None:
+    """The sync likes command should be available."""
+    result = runner.invoke(app, ["sync", "likes", "--help"])
+    assert result.exit_code == 0
+    assert "likes" in result.output.lower()
+
+
+def test_sync_bookmarks_command_exists() -> None:
+    """The sync bookmarks command should be available."""
+    result = runner.invoke(app, ["sync", "bookmarks", "--help"])
+    assert result.exit_code == 0
+    assert "bookmarks" in result.output.lower()
+
+
+def test_sync_tweets_command_exists() -> None:
+    """The sync tweets command should be available."""
+    result = runner.invoke(app, ["sync", "tweets", "--help"])
+    assert result.exit_code == 0
+    assert "tweets" in result.output.lower()
+
+
+def test_sync_reposts_command_exists() -> None:
+    """The sync reposts command should be available."""
+    result = runner.invoke(app, ["sync", "reposts", "--help"])
+    assert result.exit_code == 0
+    assert "reposts" in result.output.lower()

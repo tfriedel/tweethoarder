@@ -1,6 +1,6 @@
 from loguru import logger
 
-from twitterdump import hello
+from tweethoarder import hello
 
 
 def main() -> None:
