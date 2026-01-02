@@ -13,11 +13,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Install uv
         uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        run: uv sync --dev
 
       - name: Format
         run: uvx ruff format . --check --diff
 
       - name: Lint
         run: uvx ruff check --output-format=github .
+
+      - name: Test
+        run: uv run --frozen pytest -v
