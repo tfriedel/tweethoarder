@@ -1,4 +1,4 @@
-# twitterdump
+# tweethoarder
 
 Dump your twitter data (liks, bookmarks, ...) to files
 
@@ -112,16 +112,16 @@ This project was created from [tfriedel/python-copier-template](https://github.c
 You can apply updates from the template using:
 
 ```bash
-cd twitterdump
+cd tweethoarder
 uvx copier update -A
 ```
 
 ## Project Structure
 
 ```text
-twitterdump/
+tweethoarder/
 ├── src/
-│   └── twitterdump/          # Main package
+│   └── tweethoarder/          # Main package
 ├── tests/                          # Test files
 ├── docker/                         # Docker configuration
 ├── compose.yml                     # Docker Compose setup

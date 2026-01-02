@@ -171,7 +171,7 @@ sync:
 # Show project information
 info:
     @echo "📊 Project Information:"
-    @echo "  Name: twitterdump"
+    @echo "  Name: tweethoarder"
     @echo "  Python: $(uv run python --version)"
     @echo "  UV: $(uv --version)"
     @echo "  Git branch: $(git branch --show-current)"
