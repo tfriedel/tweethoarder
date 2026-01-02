@@ -6,7 +6,8 @@
       "Bash(gh repo clone:*)",
       "Bash(git add:*)",
       "Bash(sqlite3:*)",
-      "Skill(beads:create)"
+      "Skill(beads:create)",
+      "Bash(bd close:*)"
     ],
     "deny": [],
     "ask": []
