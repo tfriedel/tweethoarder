@@ -26,27 +26,25 @@ class SyncCheckpoint:
         last_tweet_id: str,
     ) -> None:
         """Save current sync position."""
-        conn = sqlite3.connect(self._db_path)
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO sync_progress
-                (collection_type, cursor, last_tweet_id, status)
-            VALUES (?, ?, ?, 'in_progress')
-            """,
-            (collection_type, cursor, last_tweet_id),
-        )
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO sync_progress
+                    (collection_type, cursor, last_tweet_id, status)
+                VALUES (?, ?, ?, 'in_progress')
+                """,
+                (collection_type, cursor, last_tweet_id),
+            )
+            conn.commit()
 
     def load(self, collection_type: str) -> CheckpointData | None:
         """Load checkpoint for resuming interrupted sync."""
-        conn = sqlite3.connect(self._db_path)
-        cursor = conn.execute(
-            "SELECT cursor, last_tweet_id FROM sync_progress WHERE collection_type = ?",
-            (collection_type,),
-        )
-        row = cursor.fetchone()
-        conn.close()
+        with sqlite3.connect(self._db_path) as conn:
+            result = conn.execute(
+                "SELECT cursor, last_tweet_id FROM sync_progress WHERE collection_type = ?",
+                (collection_type,),
+            )
+            row = result.fetchone()
 
         if row is None:
             return None
@@ -55,10 +53,9 @@ class SyncCheckpoint:
 
     def clear(self, collection_type: str) -> None:
         """Clear checkpoint after successful completion."""
-        conn = sqlite3.connect(self._db_path)
-        conn.execute(
-            "DELETE FROM sync_progress WHERE collection_type = ?",
-            (collection_type,),
-        )
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute(
+                "DELETE FROM sync_progress WHERE collection_type = ?",
+                (collection_type,),
+            )
+            conn.commit()
