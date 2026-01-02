@@ -9,7 +9,9 @@
       "Skill(beads:create)",
       "Bash(bd close:*)",
       "WebFetch(domain:worktrunk.dev)",
-      "Bash(bd ready:*)"
+      "Bash(bd ready:*)",
+      "Bash(bd list:*)",
+      "Bash(bd dep tree:*)"
     ],
     "deny": [],
     "ask": []
