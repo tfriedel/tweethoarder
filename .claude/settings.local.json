@@ -8,7 +8,8 @@
       "Bash(sqlite3:*)",
       "Skill(beads:create)",
       "Bash(bd close:*)",
-      "WebFetch(domain:worktrunk.dev)"
+      "WebFetch(domain:worktrunk.dev)",
+      "Bash(bd ready:*)"
     ],
     "deny": [],
     "ask": []
