@@ -1,0 +1,126 @@
+[project]
+name = "twitterdump"
+dynamic = ["version"]
+description = "Dump your twitter data (liks, bookmarks, ...) to files"
+readme = "README.md"
+authors = [{ name = "Thomas Friedel", email = "thomas.friedel@gmail.com" }]
+requires-python = ">=3.13"
+dependencies = ["loguru>=0.7.0"]
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/twitterdump"]
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
+[dependency-groups]
+dev = [
+  "coverage[toml]>=7.6.0",
+  "deptry>=0.23.0",
+  "git-cliff>=2.8.0",
+  "prek>=0.2.14",
+  "pytest>=9.0.1",
+  "pytest-cov>=6.0.0",
+  "pytest-sugar>=1.0.0",
+  "ruff>=0.14.5",
+  "sync-with-uv>=0.4.0",
+  "tdd-guard-pytest>=0.1.2",
+  "zuban>=0.2.2",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+exclude = [".git", ".ruff_cache", ".venv", ".vscode"]
+
+[tool.ruff.lint]
+preview = true
+select = [
+  "ANN", # type annotation
+  "B",   # flake8-bugbear
+  "D",   # pydocstyle
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "I",   # isort
+  "PTH", # use `pathlib.Path` instead of `os.path`
+  "RUF", # ruff specific rules
+  "SIM", # flake8-simplify
+  "UP",  # pyupgrade
+  "W",   # pycodestyle warnings
+]
+ignore = [
+  "ANN401", # Checks that function arguments are annotated with a more specific type than Any.
+  "B007",   # Unused loop variable
+  "B008",   # Function call in default argument
+  "B905",   # `zip()` without `strict=True`
+  "COM812", # Missing trailing comma
+  "COM819", # Trailing comma prohibited
+  "D1",     # Missing docstring in public module, class, function, or method
+  "D203",   # One blank line required before class docstring (ignored because D211 is prioritized in pydocstyle convention 'google')
+  "D205",   # 1 blank line required between summary line and description
+  "D212",   # Multi-line docstring summary should start at the first line
+  "D213",   # Multi-line docstring summary should start at the second line
+  "D400",   # First line of docstring should end with a period
+  "D415",   # First line of docstring should end with punctuation (period, question mark, or exclamation point)
+  "E114",   # Indentation is not a multiple of four (comment)
+  "G004",   # Logging statement uses f-string
+  "ISC001", # Implicit string concatenation on a single line
+  "ISC002", # Implicit string concatenation on multiple lines
+  "PTH123", # `open()` should be replaced by `Path.open()`
+  "Q000",   # Single quotes found when double quotes are preferred
+  "Q001",   # Single quotes found when double quotes are preferred for multi-line strings
+  "Q002",   # Single quotes found when double quotes are preferred for docstrings
+  "RUF002", # Checks for ambiguous Unicode characters in docstrings.
+  "RUF003", # Checks for ambiguous Unicode characters in comments.
+  "SIM105", # try-except-pass blocks that can be replaced with the contextlib.suppress context manager.
+  "SIM108", # Use ternary operator instead of `if`-`else`-block
+  "SIM116", # Use a dictionary instead of consecutive `if` statements
+]
+unfixable = [
+  "F401", # unused import
+  "F841", # unused variable
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.mypy]
+# Zuban mypy-compatible mode configuration
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+exclude = [".git", ".ruff_cache", ".venv", ".vscode"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "*/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "def __repr__",
+  "raise AssertionError",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
+
+[tool.deptry]

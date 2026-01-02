@@ -1,0 +1,62 @@
+{
+	"name": "python-devcontainer",
+	"image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+	"containerEnv": {
+		"DISPLAY": "${localEnv:DISPLAY}",
+		"PYTHONUNBUFFERED": "1",
+		"PYTHONDONTWRITEBYTECODE": "1",
+		"UV_CACHE_DIR": "/home/vscode/.cache/uv",
+		"UV_LINK_MODE": "copy",
+		"UV_PROJECT_ENVIRONMENT": "/home/vscode/.venv",
+		"UV_COMPILE_BYTECODE": "1",
+		"CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+	},
+	"features": {
+		"ghcr.io/devcontainers/features/github-cli:1": {},
+		"ghcr.io/devcontainers/features/common-utils:2": {
+			"configureZshAsDefaultShell": true
+		},
+		"ghcr.io/rocker-org/devcontainer-features/apt-packages:1": {
+			"packages": "curl,wget,git,jq,ca-certificates,build-essential,ripgrep,fd-find"
+		},
+		"ghcr.io/va-h/devcontainers-features/uv:1": {
+			"shellAutocompletion": true
+		},
+		"ghcr.io/devcontainers/features/node:1": {},
+		"ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+	},
+	"runArgs": [
+		"--init",
+		"--rm"
+	],
+	"hostRequirements": {
+		"gpu": "optional"
+	},
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"python.defaultInterpreterPath": "/home/vscode/.venv/bin/python"
+			},
+			"extensions": [
+				"ms-python.python",
+				"charliermarsh.ruff",
+				"eamodio.gitlens",
+				"tamasfe.even-better-toml",
+				"ms-toolsai.jupyter",
+				"yzhang.markdown-all-in-one"
+			]
+		}
+	},
+	"remoteUser": "vscode",
+	"containerUser": "vscode",
+	"initializeCommand": "mkdir -p ${localEnv:HOME}/.claude ${localEnv:HOME}/.codex && touch ${localEnv:HOME}/.claude/CLAUDE.md ${localEnv:HOME}/.codex/config.toml",
+	"mounts": [
+		"source=shell_history-${devcontainerId},target=/shell_history,type=volume",
+		"source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
+		"source=${localEnv:HOME}/.claude/CLAUDE.md,target=/home/vscode/.claude/CLAUDE.md,type=bind",
+		"source=${localEnv:HOME}/.codex,target=/home/vscode/.codex,type=bind",
+		"source=${localEnv:HOME}/.codex/config.toml,target=/home/vscode/.codex/config.toml,type=bind"
+	],
+	"postCreateCommand": "npm install -g @openai/codex@latest && uv sync",
+	"postStartCommand": "uv run prek install"
+}

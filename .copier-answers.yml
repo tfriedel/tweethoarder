@@ -1,0 +1,9 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_commit: e7d3f2d
+_src_path: gh:tfriedel/python-copier-template
+author_email: thomas.friedel@gmail.com
+author_name: Thomas Friedel
+description: Dump your twitter data (liks, bookmarks, ...) to files
+package_name: twitterdump
+project_name: twitterdump
+python_version: '3.13'
