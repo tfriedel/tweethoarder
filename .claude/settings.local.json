@@ -4,7 +4,9 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:copier.readthedocs.io)",
       "Bash(gh repo clone:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(sqlite3:*)",
+      "Skill(beads:create)"
     ],
     "deny": [],
     "ask": []
