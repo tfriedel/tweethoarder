@@ -128,43 +128,97 @@ After each green test, look for:
 
 ## Version Control & Security
 
-### Git Worktrees (worktrunk)
+### Issue Tracking (beads)
 
-We use [worktrunk](https://worktrunk.dev/) for managing git worktrees, especially useful for running multiple Claude agents in parallel.
+We use [beads](https://github.com/steveyegge/beads) for issue tracking. Issues are stored in `.beads/` and synced via git.
 
 ```bash
-# Create a new worktree (auto-copies .env, runs just setup)
-wt switch -c feat-new-feature
-
-# Switch to existing worktree
-wt switch feat-existing
-
-# List all worktrees
-wt list
+bd ready              # Show issues ready to work on (no blockers)
+bd show <id>          # Show issue details
+bd list               # List all issues
+bd update <id> --status in-progress  # Mark issue as in progress
+bd close <id>         # Close completed issue
 ```
 
-**Typical workflow:**
+### Git Worktrees (worktrunk)
 
-1. `wt switch -c feat-something` - Create worktree, runs setup automatically
-2. Work on the feature, commit changes
-3. `git push -u origin feat-something` - Push branch
-4. `gh pr create` - Create PR on GitHub
-5. After PR is approved and merged on GitHub:
-   - `wt remove feat-something -D` - Clean up the worktree
+We use [worktrunk](https://worktrunk.dev/) for managing git worktrees. Each feature gets its own worktree, enabling parallel Claude agents.
 
-Note: `wt merge` does local merging (squash + rebase + merge to main). We don't use it because we merge via GitHub PRs instead.
+**Important**: Claude cannot switch directories mid-session. Start Claude in the worktree from the beginning.
 
-Hooks configured in `.config/wt.toml`:
+### Complete Development Workflow
 
-- **post-create**: Copies `.env` from main worktree, runs `just setup`
-- **pre-merge**: Runs `just ci` to validate before merging
+#### 1. Find a Ready Issue
+
+```bash
+bd ready
+```
+
+This shows issues with no blockers, sorted by priority.
+
+#### 2. Start Claude in a New Worktree
+
+From your terminal (not inside Claude), create a worktree and start Claude:
+
+```bash
+wt switch -c feat-twitterdump-123 --execute=claude -- 'implement twitterdump-123'
+```
+
+This:
+- Creates a new worktree at `../twitterdump.feat-twitterdump-123`
+- Copies `.env` from main worktree (via post-create hook)
+- Runs `just setup` (via post-create hook)
+- Starts Claude with the instruction to implement the issue
+
+#### 3. Implement the Feature (Claude does this)
+
+1. Read the issue: `bd show twitterdump-123`
+2. Mark as in progress: `bd update twitterdump-123 --status in-progress`
+3. Follow TDD: write tests first, then implementation
+4. Commit changes with conventional commits
+5. Run `/commit-push-pr` to push and create PR
+
+#### 4. Merge the PR (Claude does this)
+
+Run `/merge` which will:
+- Rebase onto main
+- Run CI checks
+- Squash merge via GitHub
+
+#### 5. Clean Up
+
+After PR is merged, close the issue and remove the worktree:
+
+```bash
+bd close twitterdump-123
+wt remove feat-twitterdump-123
+```
+
+### Running Multiple Agents in Parallel
+
+You can run multiple Claude agents simultaneously, each in its own worktree:
+
+```bash
+# Terminal 1
+wt switch -c feat-twitterdump-5 --execute=claude -- 'implement twitterdump-5'
+
+# Terminal 2
+wt switch -c feat-twitterdump-11 --execute=claude -- 'implement twitterdump-11'
+
+# Terminal 3
+wt switch -c feat-twitterdump-12 --execute=claude -- 'implement twitterdump-12'
+```
+
+Each agent works independently with:
+- Its own worktree and branch
+- Shared beads database (synced to `beads-sync` branch automatically)
+- Isolated changes that won't conflict until merge
 
 ### Git Practices
 
-- **NEVER push directly to main** - always create a feature branch and PR
-- **Always create a new branch** when starting work on a new feature or fix (use `wt switch -c`)
-- Follow the Conventional Commits style on commit messages
-- Prefixes: `feat:`, `fix:`, `docs:`, `perf:`, `refactor:`, `style:`, `test:`, `chore:`, `ci:`
+- **NEVER push directly to main** - always use feature branches and PRs
+- **Always work in a worktree** for new features (use `wt switch -c`)
+- Follow Conventional Commits: `feat:`, `fix:`, `docs:`, `chore:`, etc.
 - Use lowercase after prefix: `feat: add feature` not `feat: Add feature`
 - Never commit secrets (API keys in .env, .env in .gitignore)
 
