@@ -132,13 +132,41 @@ After each green test, look for:
 
 We use [beads](https://github.com/steveyegge/beads) for issue tracking. Issues are stored in `.beads/` and synced via git.
 
+#### Essential Commands
+
 ```bash
 bd ready              # Show issues ready to work on (no blockers)
+bd ready --json       # Same, but JSON output for programmatic access
 bd show <id>          # Show issue details
 bd list               # List all issues
 bd update <id> --status in-progress  # Mark issue as in progress
-bd close <id>         # Close completed issue
+bd close <id> --reason "Implemented"  # Close completed issue with reason
+bd create "Title" -t feature -p 2     # Create new issue
+bd dep tree <id>      # Show dependency tree for an issue
 ```
+
+#### Issue Classification
+
+**Types**: `bug`, `feature`, `task`, `epic`, `chore`
+
+**Priorities**: 0 (critical), 1 (high), 2 (medium), 3 (low), 4 (backlog)
+
+#### Discovering Issues During Work
+
+When you discover bugs or new tasks while implementing a feature:
+
+1. Create the new issue: `bd create "Bug found in X" -t bug -p 1`
+2. Link it to your current work: `bd dep add <new-id> <current-id> --type discovered-from`
+
+This maintains context about how issues were discovered.
+
+#### Pro Tips for Agents
+
+- Always use `--json` flags for programmatic access when parsing output
+- Link discoveries with `discovered-from` to maintain context
+- Check `bd ready` before requesting next steps
+- Use `bd dep tree` to understand complex dependencies
+- Priority 0-1 issues typically matter more than 2-4
 
 ### Git Worktrees (worktrunk)
 
