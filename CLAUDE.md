@@ -8,6 +8,7 @@ Follow these guidelines precisely with a focus on maintainability and clear sepa
 **Read [`SPEC.md`](SPEC.md) before starting work on any new issue.**
 
 This file contains the current design document including:
+
 - Architecture and directory structure
 - Data models and database schema
 - CLI commands and their behavior
@@ -56,6 +57,7 @@ just ci          # Run full CI pipeline
 This template uses `prek`, a Rust-based drop-in replacement for pre-commit that runs **10x faster** while using half the disk space.
 
 **Why prek:**
+
 - Dramatically faster hook execution for faster commits
 - Reduced disk usage compared to Python-based pre-commit
 - Full compatibility with existing pre-commit hooks
@@ -68,12 +70,14 @@ This template uses `prek`, a Rust-based drop-in replacement for pre-commit that 
 This template uses `sync-with-uv` to eliminate version drift between `uv.lock` and `.pre-commit-config.yaml`.
 
 **How it works:**
+
 - `uv.lock` is the single source of truth for all tool versions
 - The `sync-with-uv` pre-commit hook runs before all other hooks
 - It automatically updates tool versions in `.pre-commit-config.yaml` to match `uv.lock`
 - No manual synchronization needed when upgrading dependencies
 
 **Benefits:**
+
 - Consistent tool behavior between local development and CI
 - Eliminates unexpected pre-commit failures from version mismatches
 - Reduces manual maintenance of configuration files
@@ -151,7 +155,7 @@ bd ready              # Show issues ready to work on (no blockers)
 bd ready --json       # Same, but JSON output for programmatic access
 bd show <id>          # Show issue details
 bd list               # List all issues
-bd update <id> --status in-progress  # Mark issue as in progress
+bd update <id> --status in_progress  # Mark issue as in progress
 bd close <id> --reason "Implemented"  # Close completed issue with reason
 bd create "Title" -t feature -p 2     # Create new issue
 bd dep tree <id>      # Show dependency tree for an issue
@@ -205,6 +209,7 @@ wt switch -c feat-twitterdump-123 --execute=claude -- 'implement twitterdump-123
 ```
 
 This:
+
 - Creates a new worktree at `../twitterdump.feat-twitterdump-123`
 - Copies `.env` from main worktree (via post-create hook)
 - Runs `just setup` (via post-create hook)
@@ -213,7 +218,7 @@ This:
 #### 3. Implement the Feature (Claude does this)
 
 1. Read the issue: `bd show twitterdump-123`
-2. Mark as in progress: `bd update twitterdump-123 --status in-progress`
+2. Mark as in progress: `bd update twitterdump-123 --status in_progress`
 3. Follow TDD: write tests first, then implementation
 4. Commit changes with conventional commits
 5. Run `/commit-push-pr` to push and create PR
@@ -221,6 +226,7 @@ This:
 #### 4. Merge the PR (Claude does this)
 
 Run `/merge` which will:
+
 - Rebase onto main
 - Run CI checks
 - Squash merge via GitHub
@@ -250,6 +256,7 @@ wt switch -c feat-twitterdump-12 --execute=claude -- 'implement twitterdump-12'
 ```
 
 Each agent works independently with:
+
 - Its own worktree and branch
 - Shared beads database (synced to `beads-sync` branch automatically)
 - Isolated changes that won't conflict until merge
