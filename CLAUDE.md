@@ -128,10 +128,45 @@ After each green test, look for:
 
 ## Version Control & Security
 
+### Git Worktrees (worktrunk)
+
+We use [worktrunk](https://worktrunk.dev/) for managing git worktrees, especially useful for running multiple Claude agents in parallel.
+
+```bash
+# Create a new worktree (auto-copies .env, runs just setup)
+wt switch -c feat-new-feature
+
+# Switch to existing worktree
+wt switch feat-existing
+
+# List all worktrees
+wt list
+```
+
+**Typical workflow:**
+
+1. `wt switch -c feat-something` - Create worktree, runs setup automatically
+2. Work on the feature, commit changes
+3. `git push -u origin feat-something` - Push branch
+4. `gh pr create` - Create PR on GitHub
+5. After PR is approved and merged on GitHub:
+   - `wt remove feat-something -D` - Clean up the worktree
+
+Note: `wt merge` does local merging (squash + rebase + merge to main). We don't use it because we merge via GitHub PRs instead.
+
+Hooks configured in `.config/wt.toml`:
+
+- **post-create**: Copies `.env` from main worktree, runs `just setup`
+- **pre-merge**: Runs `just ci` to validate before merging
+
 ### Git Practices
 
+- **NEVER push directly to main** - always create a feature branch and PR
+- **Always create a new branch** when starting work on a new feature or fix (use `wt switch -c`)
 - Follow the Conventional Commits style on commit messages
-- When making changes, always make sure you are on a feature branch
+- Prefixes: `feat:`, `fix:`, `docs:`, `perf:`, `refactor:`, `style:`, `test:`, `chore:`, `ci:`
+- Use lowercase after prefix: `feat: add feature` not `feat: Add feature`
+- Never commit secrets (API keys in .env, .env in .gitignore)
 
 ### Security Requirements
 
