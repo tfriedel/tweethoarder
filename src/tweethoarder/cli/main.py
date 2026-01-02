@@ -2,6 +2,7 @@
 
 import typer
 
+from tweethoarder.cli import stats as stats_module
 from tweethoarder.cli import sync
 
 app = typer.Typer(
@@ -15,6 +16,7 @@ app.add_typer(sync.app, name="sync")
 @app.command()
 def stats() -> None:
     """Show statistics about synced data."""
+    stats_module.show_stats()
 
 
 @app.command(name="refresh-ids")
