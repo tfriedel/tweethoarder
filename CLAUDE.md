@@ -3,6 +3,18 @@
 This document contains critical information about working with this codebase.
 Follow these guidelines precisely with a focus on maintainability and clear separation of concerns.
 
+## Project Specification
+
+**Read [`SPEC.md`](SPEC.md) before starting work on any new issue.**
+
+This file contains the current design document including:
+- Architecture and directory structure
+- Data models and database schema
+- CLI commands and their behavior
+- Implementation phases and priorities
+
+Keep SPEC.md updated as the project evolves. When implementing features, verify your approach aligns with the spec. When making architectural decisions, update the spec to reflect them.
+
 ## Quick Start
 
 For new repository setup, use justfile:
