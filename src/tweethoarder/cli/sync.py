@@ -283,6 +283,74 @@ def tweets(
     typer.echo(f"Synced {result['synced_count']} tweets.")
 
 
+async def sync_reposts_async(db_path: Path, count: float) -> dict[str, int]:
+    """Sync user's reposts asynchronously."""
+    from tweethoarder.client.timelines import (
+        fetch_user_tweets_page,
+        is_repost,
+        parse_user_tweets_response,
+    )
+
+    init_database(db_path)
+
+    cookies = resolve_cookies()
+    if not cookies:
+        raise ValueError("No cookies found")
+
+    client = TwitterClient(cookies)
+    cache_path = get_config_dir() / "query-ids-cache.json"
+    store = QueryIdStore(cache_path)
+    query_id = get_query_id_with_fallback(store, "UserTweets")
+
+    user_id = cookies.get("twid", "").replace("u%3D", "")
+    if not user_id:
+        raise ValueError("Could not determine user ID from cookies")
+
+    synced_count = 0
+    headers = client.get_base_headers()
+    cursor: str | None = None
+
+    async with httpx.AsyncClient(headers=headers) as http_client:
+        while synced_count < count:
+            response = await fetch_user_tweets_page(
+                http_client,
+                query_id,
+                user_id,
+                cursor,
+            )
+            tweets, cursor = parse_user_tweets_response(response)
+
+            if not tweets:
+                break
+
+            for raw_tweet in tweets:
+                if synced_count >= count:
+                    break
+                if not is_repost(raw_tweet):
+                    continue
+                tweet_data = extract_tweet_data(raw_tweet)
+                if tweet_data:
+                    save_tweet(db_path, tweet_data)
+                    add_to_collection(db_path, tweet_data["id"], "repost")
+                    synced_count += 1
+
+            if not cursor:
+                break
+
+    return {"synced_count": synced_count}
+
+
 @app.command()
-def reposts() -> None:
+def reposts(
+    count: int = typer.Option(100, "--count", "-c", help="Number of reposts to sync."),
+    all_reposts: bool = typer.Option(False, "--all", help="Sync all reposts (ignore count)."),
+) -> None:
     """Sync user's reposts (retweets) to local storage."""
+    import asyncio
+
+    from tweethoarder.config import get_data_dir
+
+    db_path = get_data_dir() / "tweethoarder.db"
+    effective_count = float("inf") if all_reposts else count
+    result = asyncio.run(sync_reposts_async(db_path, effective_count))
+    typer.echo(f"Synced {result['synced_count']} reposts.")
