@@ -231,3 +231,32 @@ def test_save_tweet_uses_single_upsert_operation(tmp_path: Path) -> None:
     conn.close()
 
     assert first_save[0] == first_save[1]
+
+
+def test_get_tweets_by_collection_returns_tweets(tmp_path: Path) -> None:
+    """get_tweets_by_collection should return tweets in a specific collection."""
+    from tweethoarder.storage.database import (
+        add_to_collection,
+        get_tweets_by_collection,
+        init_database,
+        save_tweet,
+    )
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    tweet_data = {
+        "id": "123456789",
+        "text": "Hello!",
+        "author_id": "987654321",
+        "author_username": "testuser",
+        "created_at": "2025-01-01T12:00:00Z",
+    }
+    save_tweet(db_path, tweet_data)
+    add_to_collection(db_path, "123456789", "like")
+
+    tweets = get_tweets_by_collection(db_path, "like")
+
+    assert len(tweets) == 1
+    assert tweets[0]["id"] == "123456789"
+    assert tweets[0]["text"] == "Hello!"

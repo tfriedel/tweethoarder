@@ -1,10 +1,38 @@
 """Tests for the CLI export module."""
 
+from pathlib import Path
+
 from typer.testing import CliRunner
 
 from tweethoarder.cli.main import app
 
 runner = CliRunner()
+
+
+def _setup_test_db(tmp_path: Path) -> Path:
+    """Set up a test database with sample data in XDG structure."""
+    from tweethoarder.storage.database import (
+        add_to_collection,
+        init_database,
+        save_tweet,
+    )
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+    save_tweet(
+        db_path,
+        {
+            "id": "123",
+            "text": "Test tweet",
+            "author_id": "456",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "123", "like")
+    return db_path
 
 
 def test_export_json_command_exists() -> None:
@@ -26,3 +54,34 @@ def test_export_json_has_output_option() -> None:
     result = runner.invoke(app, ["export", "json", "--help"])
     assert result.exit_code == 0
     assert "--output" in result.output
+
+
+def test_export_markdown_command_exists() -> None:
+    """Export markdown subcommand should be available."""
+    result = runner.invoke(app, ["export", "markdown", "--help"])
+    assert result.exit_code == 0
+    assert "Export tweets to Markdown format" in result.output
+
+
+def test_export_markdown_has_collection_option() -> None:
+    """Export markdown command should have collection option."""
+    result = runner.invoke(app, ["export", "markdown", "--help"])
+    assert result.exit_code == 0
+    assert "--collection" in result.output
+
+
+def test_export_markdown_writes_file(tmp_path: Path, monkeypatch: object) -> None:
+    """Export markdown command should write to file."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.md"
+    result = runner.invoke(
+        app, ["export", "markdown", "--collection", "likes", "--output", str(output_path)]
+    )
+
+    assert result.exit_code == 0
+    assert output_path.exists()
+    content = output_path.read_text()
+    assert "# Liked Tweets" in content
+    assert "@testuser" in content

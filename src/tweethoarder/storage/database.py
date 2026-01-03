@@ -184,3 +184,19 @@ def add_to_collection(db_path: Path, tweet_id: str, collection_type: str) -> Non
             (tweet_id, collection_type, now, now),
         )
         conn.commit()
+
+
+def get_tweets_by_collection(db_path: Path, collection_type: str) -> list[dict[str, Any]]:
+    """Get all tweets in a collection."""
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(
+            """
+            SELECT t.* FROM tweets t
+            JOIN collections c ON t.id = c.tweet_id
+            WHERE c.collection_type = ?
+            ORDER BY c.added_at DESC
+            """,
+            (collection_type,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
