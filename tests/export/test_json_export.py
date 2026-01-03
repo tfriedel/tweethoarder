@@ -5,28 +5,6 @@ from typing import Any
 from tweethoarder.export.json_export import export_tweets_to_json
 
 
-def make_tweet(
-    tweet_id: str = "123",
-    text: str = "Hello world",
-    author_id: str = "456",
-    author_username: str = "testuser",
-    author_display_name: str = "Test User",
-    created_at: str = "2025-01-01T12:00:00Z",
-    **kwargs: Any,
-) -> dict[str, Any]:
-    """Create a test tweet with sensible defaults."""
-    tweet = {
-        "id": tweet_id,
-        "text": text,
-        "author_id": author_id,
-        "author_username": author_username,
-        "author_display_name": author_display_name,
-        "created_at": created_at,
-    }
-    tweet.update(kwargs)
-    return tweet
-
-
 def test_export_tweets_to_json_returns_dict() -> None:
     """Export function returns a dictionary."""
     result = export_tweets_to_json(tweets=[])
@@ -47,14 +25,14 @@ def test_export_includes_collection_name() -> None:
     assert result["collection"] == "likes"
 
 
-def test_export_includes_tweet_count() -> None:
+def test_export_includes_tweet_count(make_tweet: Any) -> None:
     """Export includes count of tweets."""
     tweets = [make_tweet(tweet_id="1"), make_tweet(tweet_id="2"), make_tweet(tweet_id="3")]
     result = export_tweets_to_json(tweets=tweets)
     assert result["count"] == 3
 
 
-def test_export_includes_tweets_array() -> None:
+def test_export_includes_tweets_array(make_tweet: Any) -> None:
     """Export includes tweets array with basic tweet data."""
     tweets = [make_tweet()]
     result = export_tweets_to_json(tweets=tweets)
@@ -65,7 +43,7 @@ def test_export_includes_tweets_array() -> None:
     assert result["tweets"][0]["created_at"] == "2025-01-01T12:00:00Z"
 
 
-def test_export_formats_author_as_nested_object() -> None:
+def test_export_formats_author_as_nested_object(make_tweet: Any) -> None:
     """Export formats author fields as nested object."""
     tweets = [make_tweet()]
     result = export_tweets_to_json(tweets=tweets)
@@ -75,7 +53,7 @@ def test_export_formats_author_as_nested_object() -> None:
     assert author["display_name"] == "Test User"
 
 
-def test_export_includes_metrics() -> None:
+def test_export_includes_metrics(make_tweet: Any) -> None:
     """Export includes tweet metrics as nested object."""
     tweets = [make_tweet(reply_count=10, retweet_count=50, like_count=200, quote_count=5)]
     result = export_tweets_to_json(tweets=tweets)
@@ -85,7 +63,7 @@ def test_export_includes_metrics() -> None:
     assert metrics["like_count"] == 200
 
 
-def test_export_includes_media() -> None:
+def test_export_includes_media(make_tweet: Any) -> None:
     """Export includes media from JSON field."""
     media_json = '[{"type": "photo", "url": "https://pbs.twimg.com/media/xxx.jpg"}]'
     tweets = [make_tweet(media_json=media_json)]
@@ -96,7 +74,7 @@ def test_export_includes_media() -> None:
     assert media[0]["url"] == "https://pbs.twimg.com/media/xxx.jpg"
 
 
-def test_export_includes_quoted_tweet() -> None:
+def test_export_includes_quoted_tweet(make_tweet: Any) -> None:
     """Export includes quoted tweet when present."""
     quoted_tweet = make_tweet(
         tweet_id="999", text="Original tweet", author_username="original_user"

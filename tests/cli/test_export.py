@@ -118,3 +118,34 @@ def test_export_markdown_exports_all_tweets_when_no_collection(
     content = output_path.read_text()
     assert "@testuser" in content
     assert "Test tweet" in content
+
+
+def test_export_csv_command_exists() -> None:
+    """Export csv subcommand should be available."""
+    result = runner.invoke(app, ["export", "csv", "--help"])
+    assert result.exit_code == 0
+    assert "Export tweets to CSV format" in result.output
+
+
+def test_export_csv_has_collection_option() -> None:
+    """Export csv command should have collection option."""
+    result = runner.invoke(app, ["export", "csv", "--help"])
+    assert result.exit_code == 0
+    assert "--collection" in result.output
+
+
+def test_export_csv_writes_file(tmp_path: Path, monkeypatch: object) -> None:
+    """Export csv command should write to file."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.csv"
+    result = runner.invoke(
+        app, ["export", "csv", "--collection", "likes", "--output", str(output_path)]
+    )
+
+    assert result.exit_code == 0
+    assert output_path.exists()
+    content = output_path.read_text()
+    assert "id" in content
+    assert "testuser" in content
