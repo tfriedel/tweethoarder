@@ -187,7 +187,15 @@ def add_to_collection(db_path: Path, tweet_id: str, collection_type: str) -> Non
 
 
 def get_tweets_by_collection(db_path: Path, collection_type: str) -> list[dict[str, Any]]:
-    """Get all tweets in a collection."""
+    """Get all tweets in a collection.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        collection_type: The type of collection (e.g., "like", "bookmark").
+
+    Returns:
+        List of tweet dictionaries ordered by when they were added (most recent first).
+    """
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.execute(
@@ -198,5 +206,25 @@ def get_tweets_by_collection(db_path: Path, collection_type: str) -> list[dict[s
             ORDER BY c.added_at DESC
             """,
             (collection_type,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_all_tweets(db_path: Path) -> list[dict[str, Any]]:
+    """Get all tweets in the database.
+
+    Args:
+        db_path: Path to the SQLite database file.
+
+    Returns:
+        List of tweet dictionaries ordered by creation date (most recent first).
+    """
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(
+            """
+            SELECT * FROM tweets
+            ORDER BY created_at DESC
+            """
         )
         return [dict(row) for row in cursor.fetchall()]
