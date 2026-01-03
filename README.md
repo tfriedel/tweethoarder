@@ -1,201 +1,276 @@
-# tweethoarder
+# TweetHoarder
 
-Dump your twitter data (liks, bookmarks, ...) to files
+Archive your Twitter/X data locally - likes, bookmarks, tweets, and reposts.
+
+TweetHoarder uses cookie-based authentication to access Twitter's internal GraphQL API (no paid API key required), storing everything in a local SQLite database for offline access and search.
 
 ## Features
 
-- 🚀 **Modern Python**: Support for Python 3.13+
-- 📦 **uv Package Manager**: Fast and reliable package management with [uv](https://github.com/astral-sh/uv)
-- 🐳 **Docker Support**: Complete Docker development environment
-- 📦 **Devcontainer Support**: VS Code devcontainer for consistent development
-- ✨ **AI Editor Support**: [Cursor rules](https://docs.cursor.com/context/rules) and [CLAUDE.md](https://docs.anthropic.com/en/docs/claude-code/overview) included for AI-powered development
-- 🛡️ **TDD-Guard**: Automated TDD enforcement for Claude Code with real-time test-driven development validation
-- 📝 **Type Checking**: Zuban type checker with mypy-compatible mode
-- 🔍 **Code Quality**: Pre-configured Ruff for linting and formatting
-- 🧪 **Testing**: pytest setup with coverage reporting and enhanced output (pytest-cov, pytest-sugar)
-- 📊 **Modern Logging**: Loguru for intuitive, zero-config logging
-- 🔧 **Pre-commit Hooks**: Automated code quality checks with prek (10x faster than traditional pre-commit)
-- 🔄 **Version Sync**: sync-with-uv eliminates version drift between uv.lock and pre-commit config
-- 🏷️ **Dynamic Versioning**: Automatic versioning from git tags (no manual version bumping!)
-- 📝 **Changelog Generation**: Automated CHANGELOG.md from conventional commits
-- 🏗️ **CI Ready**: GitHub Actions workflows included
-- ⚡ **justfile**: Modern command runner for common development tasks
+- **Sync your data**: Likes, bookmarks (with folders), tweets, reposts
+- **Thread expansion**: Archive full threads and conversations with context
+- **Multiple exports**: JSON, Markdown, CSV, and searchable HTML
+- **Resume support**: Checkpointing allows interrupted syncs to continue
+- **Browser cookie extraction**: Auto-detect from Firefox or Chrome
+- **Rate limit handling**: Adaptive backoff prevents API bans
+- **Offline-first**: All data stored locally in SQLite
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/tweethoarder.git
+cd tweethoarder
+
+# Install with uv
+uv sync
+
+# Or install as a package
+uv pip install -e .
+```
 
 ## Quick Start
 
-### Pre-Requirements
+```bash
+# First run - auto-detects cookies from Firefox/Chrome
+tweethoarder sync likes
 
-- [uv](https://docs.astral.sh/uv/): Fast Python package installer
-- [just](https://just.systems/): Command runner (optional but recommended)
-- [Node.js](https://nodejs.org/) (optional, for TDD-Guard): Required for TDD enforcement with Claude Code
+# Sync other collections
+tweethoarder sync bookmarks
+tweethoarder sync tweets --count 500
+tweethoarder sync reposts --all
 
-### Development Setup
+# Export your data
+tweethoarder export json --collection likes --output ~/likes.json
+tweethoarder export html --collection bookmarks  # Searchable HTML viewer
+
+# View statistics
+tweethoarder stats
+```
+
+## Commands
+
+### Sync Commands
 
 ```bash
-# Quick setup (initializes git, installs TDD-Guard, dependencies, and pre-commit hooks)
+# Sync likes (default: 100 tweets, use --all for unlimited)
+tweethoarder sync likes [--count N] [--all] [--resume]
+
+# Sync bookmarks from all folders
+tweethoarder sync bookmarks [--resume]
+
+# Sync your own tweets
+tweethoarder sync tweets [--count N] [--all] [--resume]
+
+# Sync reposts (retweets)
+tweethoarder sync reposts [--count N] [--all] [--resume]
+
+# Sync with thread expansion (archives full threads for each tweet)
+tweethoarder sync likes --with-threads
+```
+
+### Thread Commands
+
+```bash
+# Fetch thread for a specific tweet (author's chain only)
+tweethoarder thread 1234567890
+
+# Fetch full conversation including all replies
+tweethoarder thread 1234567890 --mode conversation --limit 200
+```
+
+**Thread vs Conversation:**
+- **Thread**: Same author's self-reply chain (classic "tweetstorm")
+- **Conversation**: All tweets in the discussion, including other participants
+
+### Export Commands
+
+```bash
+# Export to JSON
+tweethoarder export json [--collection TYPE] [--output PATH]
+
+# Export to Markdown
+tweethoarder export markdown [--collection TYPE] [--output PATH]
+
+# Export to searchable HTML (single file with embedded search)
+tweethoarder export html [--collection TYPE] [--output PATH]
+
+# Export to CSV
+tweethoarder export csv [--collection TYPE] [--output PATH]
+
+# Export specific bookmark folder
+tweethoarder export json --collection bookmarks --folder "Work"
+```
+
+### Utility Commands
+
+```bash
+# Show sync statistics
+tweethoarder stats
+
+# Force refresh Twitter API query IDs
+tweethoarder refresh-ids
+
+# View/modify configuration
+tweethoarder config show
+tweethoarder config set sync.default_tweet_count 500
+```
+
+## Authentication
+
+TweetHoarder automatically extracts cookies from your browser. Priority order:
+
+1. **Environment variables**: `TWITTER_AUTH_TOKEN`, `TWITTER_CT0`, `TWITTER_TWID`
+2. **Config file**: `~/.config/tweethoarder/config.toml`
+3. **Firefox**: Auto-detect from `~/.mozilla/firefox/*/cookies.sqlite`
+4. **Chrome**: Auto-detect with keyring decryption
+
+### Manual Cookie Setup
+
+If auto-detection fails, you can set cookies manually:
+
+```bash
+# Via environment variables
+export TWITTER_AUTH_TOKEN="your_auth_token"
+export TWITTER_CT0="your_ct0_token"
+
+# Or in config file (~/.config/tweethoarder/config.toml)
+[auth]
+auth_token = "your_auth_token"
+ct0 = "your_ct0_token"
+```
+
+To find your cookies:
+1. Open Twitter/X in your browser
+2. Open Developer Tools (F12) > Application > Cookies
+3. Copy values for `auth_token` and `ct0`
+
+## Data Storage
+
+All data is stored in SQLite at `~/.local/share/tweethoarder/tweethoarder.db`
+
+### Database Schema
+
+- **tweets**: All tweet content and metadata
+- **collections**: Which tweets belong to which collection (likes, bookmarks, etc.)
+- **threads**: Thread/conversation metadata
+- **sync_progress**: Checkpoints for resumable syncs
+
+### Example Queries
+
+```sql
+-- Find all liked tweets from a specific author
+SELECT t.* FROM tweets t
+JOIN collections c ON t.id = c.tweet_id
+WHERE c.collection_type = 'like' AND t.author_username = 'elonmusk';
+
+-- Get highly-engaged tweets in your likes
+SELECT t.*, (t.like_count + t.retweet_count) as engagement
+FROM tweets t
+JOIN collections c ON t.id = c.tweet_id
+WHERE c.collection_type = 'like'
+ORDER BY engagement DESC LIMIT 50;
+```
+
+See [SPEC.md](SPEC.md) for comprehensive SQL query examples.
+
+## Configuration
+
+Config file location: `~/.config/tweethoarder/config.toml`
+
+```toml
+[auth]
+cookie_sources = ["firefox", "chrome"]  # Priority order
+
+[sync]
+default_tweet_count = 100
+request_delay_ms = 500
+max_retries = 5
+
+[export]
+export_dir = "~/tweethoarder-exports"
+
+[display]
+show_progress = true
+verbose = false
+```
+
+## Development
+
+### Setup
+
+```bash
+# Install dependencies
 just setup
 
 # Or manually:
-# Initialize git repository (required for dynamic versioning)
-git init
-
-# Install TDD-Guard (optional, requires Node.js/npm)
-npm install -g tdd-guard@latest
-
-# Install dependencies
 uv sync --dev
-
-# Install pre-commit hooks
 uv run prek install
 ```
 
-### Common Commands
+### Commands
 
 ```bash
-# View all available commands
-just --list
-
-# Testing
-just test              # Run tests
-just test-verbose      # Run tests with verbose output
-just test-coverage     # Run tests with coverage report
-
-# Code quality
-just format            # Format code with ruff
-just lint              # Check code quality
-just lint-fix          # Auto-fix linting issues
-
-# Development workflow
-just ci                # Run full CI pipeline (format, lint, test)
-just changelog         # Generate/update CHANGELOG.md
-just clean             # Clean up temporary files and caches
+just test          # Run tests
+just lint          # Check code quality
+just format        # Format code
+just ci            # Run full CI pipeline
 ```
 
-### Manual Commands (without justfile)
+### Project Structure
 
-```bash
-# Run tests
-uv run pytest
-
-# Run formatting and linting (automatically runs on commit)
-uv run ruff format .
-uv run ruff check .
-# Auto Fix
-uv run ruff check . --fix
 ```
-
-### Docker Development Setup
-
-The template includes a complete Docker setup:
-
-```bash
-# create uv.lock file
-uv sync
-
-# use the provided scripts
-./docker/build.sh
-./docker/run.sh # or./docker/run.sh (Command)
-
-# Build and run with Docker Compose
-docker compose build
-docker compose up
-```
-
-### VS Code Devcontainer
-
-Open the project in VS Code and use the "Reopen in Container" command for a fully configured development environment.
-
-### Update Template
-
-This project was created from [tfriedel/python-copier-template](https://github.com/tfriedel/python-copier-template), a fork of [mjun0812/python-copier-template](https://github.com/mjun0812/python-copier-template) with TDD-Guard integration.
-
-You can apply updates from the template using:
-
-```bash
-cd tweethoarder
-uvx copier update -A
-```
-
-## Project Structure
-
-```text
 tweethoarder/
-├── src/
-│   └── tweethoarder/          # Main package
-├── tests/                          # Test files
-├── docker/                         # Docker configuration
-├── compose.yml                     # Docker Compose setup
-├── pyproject.toml                  # Project configuration
-└── README.md                       # Project documentation
+├── src/tweethoarder/
+│   ├── cli/           # Typer CLI commands
+│   ├── client/        # Twitter API client
+│   ├── auth/          # Cookie extraction
+│   ├── query_ids/     # Query ID management
+│   ├── storage/       # SQLite database
+│   └── export/        # Export formatters
+├── tests/             # Unit tests
+├── SPEC.md            # Detailed specification
+└── CLAUDE.md          # Development guidelines
 ```
 
-## Q&A
+## How It Works
 
-### What type checker does this use?
+TweetHoarder uses Twitter's internal GraphQL API (the same one the web app uses):
 
-This template includes [Zuban](https://github.com/lorencarvalho/zuban), a modern type checker with mypy-compatible mode. If you prefer a different type checker like mypy or pyright, you can easily swap it out.
+1. **Authentication**: Extracts session cookies from your browser
+2. **Query IDs**: Discovers Twitter's rotating GraphQL operation IDs from JS bundles
+3. **Fetching**: Paginates through your likes/bookmarks/tweets with rate limiting
+4. **Storage**: Saves everything to SQLite with full metadata
+5. **Export**: Generates various output formats for offline viewing
 
-### How does versioning work?
+The architecture is ported from [bird](https://github.com/steipete/bird), a TypeScript Twitter client.
 
-This template uses **dynamic versioning** from git tags - no manual version bumping required!
+## Troubleshooting
 
-- Version is automatically derived from git tags using `uv-dynamic-versioning`
-- Create a git tag (e.g., `v1.0.0`) to set your version
-- The version in your built package will match the tag
-- No need to manually update `pyproject.toml` for version changes
+### "Cookie extraction failed"
 
-**Example workflow:**
+- Make sure you're logged into Twitter in your browser
+- Try closing the browser completely before running
+- For Chrome, ensure GNOME Keyring or KDE Wallet is accessible
+
+### "Query ID not found" / 404 errors
+
+Twitter periodically rotates their API identifiers. Run:
 ```bash
-# Make your changes and commit them
-git commit -m "feat: add new feature"
-
-# Create a version tag
-git tag v1.0.0
-
-# Build your package (version will be 1.0.0)
-uv build
+tweethoarder refresh-ids
 ```
 
-### How do I generate a changelog?
+### Rate limiting
 
-The template includes automated changelog generation from git commits using conventional commits:
+TweetHoarder uses adaptive rate limiting. If you hit limits:
+- Wait a few minutes and retry
+- Use `--resume` to continue where you left off
+- Reduce `request_delay_ms` in config for slower but safer syncing
 
-```bash
-# Generate/update CHANGELOG.md
-just changelog
-```
+## License
 
-**Conventional commit format:**
-```
-type(scope): description
+MIT
 
-Examples:
-- feat: add user authentication
-- fix: resolve login bug
-- docs: update installation guide
-- chore: update dependencies
-```
+## Acknowledgments
 
-Supported types: `feat`, `fix`, `docs`, `perf`, `refactor`, `style`, `test`, `chore`
-
-### What logging library should I use?
-
-The template includes [Loguru](https://github.com/Delgan/loguru) for modern, zero-config logging:
-
-```python
-from loguru import logger
-
-logger.info("Application started")
-logger.debug("Debug info: {}", some_var)
-logger.error("Something went wrong!")
-
-# Easy file logging with rotation
-logger.add("logs/app_{time}.log", rotation="500 MB", retention="10 days")
-```
-
-## Support
-
-- 📖 [Copier Documentation](https://copier.readthedocs.io/)
-- 🐍 [uv Documentation](https://docs.astral.sh/uv/)
-- ⚡ [just Documentation](https://just.systems/)
-- 🔍 [Ruff Documentation](https://docs.astral.sh/ruff/)
+- [bird](https://github.com/steipete/bird) - TypeScript Twitter client (reference implementation)
+- [python-copier-template](https://github.com/tfriedel/python-copier-template) - Project template

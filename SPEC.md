@@ -602,3 +602,772 @@ async def test_fetch_likes():
 ### Cookie Expiration
 - Detect expired cookies and prompt user
 - Clear instructions for manual cookie refresh
+
+---
+
+## Glossary
+
+This section defines key terms used throughout the specification.
+
+| Term | Definition |
+|------|------------|
+| **Thread** | A series of tweets by the **same author** that share the same `conversation_id`, where each tweet is a reply to the previous. Classic "tweetstorm" or "1/N" format. |
+| **Conversation** | All tweets sharing the same `conversation_id`, including replies from **multiple authors**. A superset of thread - threads are conversations, but not all conversations are threads. |
+| **Focal Tweet** | The original tweet that triggered thread/conversation expansion. When you expand a liked tweet's thread, that liked tweet is the focal tweet. |
+| **Tombstone** | A placeholder record indicating a deleted or unavailable tweet existed at a position in the thread. Preserves chain structure even when content is gone. |
+| **Checkpoint** | Saved progress state allowing sync operations to resume after interruption. Stores cursor position and last processed tweet ID. |
+| **Query ID** | Twitter's rotating GraphQL operation identifiers. Change periodically and must be discovered via bundle scraping. |
+| **Bundle** | Twitter's compiled JavaScript files containing query IDs and feature flags. Scraped to discover current query IDs. |
+| **Conversation ID** | Twitter's identifier linking all tweets in a conversation. The conversation_id equals the root tweet's ID. |
+
+---
+
+## Thread & Conversation Feature
+
+### Overview
+
+The thread command fetches and archives conversation context for tweets. It supports two modes:
+
+1. **Thread Mode**: Extracts only the original author's self-reply chain (classic "unroll")
+2. **Conversation Mode**: Archives the full conversation including all participants
+
+### Definitions (Code-Level)
+
+```python
+def is_thread_tweet(tweet: Tweet, author_id: str, conversation_id: str) -> bool:
+    """A tweet belongs to a thread if:
+    - Same author as thread root
+    - Same conversation_id
+    - Is either the root or a reply to another tweet in the thread
+    """
+    return (
+        tweet.author_id == author_id
+        and tweet.conversation_id == conversation_id
+    )
+
+def is_conversation_tweet(tweet: Tweet, conversation_id: str) -> bool:
+    """A tweet belongs to a conversation if it shares the conversation_id."""
+    return tweet.conversation_id == conversation_id
+```
+
+### CLI Commands
+
+```bash
+# Manual thread/conversation expansion
+tweethoarder thread <tweet_id> [--mode thread|conversation] [--limit N]
+
+# Thread expansion during sync
+tweethoarder sync likes --with-threads [--thread-mode thread|conversation] [--thread-limit N]
+tweethoarder sync bookmarks --with-threads [--thread-mode thread|conversation] [--thread-limit N]
+
+# Examples
+tweethoarder thread 1234567890                    # Default: thread mode
+tweethoarder thread 1234567890 --mode conversation --limit 200
+tweethoarder sync likes --with-threads            # Expand threads for new likes
+```
+
+### Default Values
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--mode` | `thread` | Extract author's chain only |
+| `--limit` | 200 | Max tweets to fetch per conversation |
+| `--thread-limit` | 200 | Same as --limit for sync commands |
+
+### Conversation Limits & Prioritization
+
+Large conversations (viral tweets) can have thousands of replies. To prevent excessive API usage and storage:
+
+**Hard Limits:**
+- Thread mode: Unlimited (author threads rarely exceed 100 tweets)
+- Conversation mode: 500 tweets maximum (configurable via `--limit`)
+
+**Prioritization Strategy (Author-Centric):**
+
+When a conversation exceeds the limit, prioritize tweets in this order:
+
+1. **Author's replies**: All tweets from the original thread author
+2. **Direct parents**: Tweets that author replied to (for context)
+3. **High engagement**: Top liked/retweeted replies (> 100 likes)
+4. **Chronological**: First N tweets by timestamp
+
+```python
+def prioritize_conversation_tweets(
+    tweets: list[Tweet],
+    author_id: str,
+    limit: int
+) -> list[Tweet]:
+    """Select most valuable tweets when conversation exceeds limit."""
+    author_tweets = [t for t in tweets if t.author_id == author_id]
+    parent_ids = {t.in_reply_to_tweet_id for t in author_tweets if t.in_reply_to_tweet_id}
+    parent_tweets = [t for t in tweets if t.id in parent_ids]
+
+    # Always include author + their context
+    must_include = set(author_tweets + parent_tweets)
+
+    remaining = [t for t in tweets if t not in must_include]
+    remaining.sort(key=lambda t: t.like_count + t.retweet_count, reverse=True)
+
+    result = list(must_include)
+    for tweet in remaining:
+        if len(result) >= limit:
+            break
+        result.append(tweet)
+
+    return sorted(result, key=lambda t: t.created_at)
+```
+
+### Database Schema Changes
+
+#### New `threads` Table
+
+```sql
+-- Thread/conversation metadata
+CREATE TABLE threads (
+    id TEXT PRIMARY KEY,                    -- UUID for thread record
+    conversation_id TEXT NOT NULL,          -- Twitter's conversation_id (= root tweet ID)
+    root_tweet_id TEXT NOT NULL,            -- First tweet in conversation
+    focal_tweet_id TEXT,                    -- Tweet that triggered expansion (from collection)
+    author_id TEXT NOT NULL,                -- Original thread author
+    thread_type TEXT NOT NULL,              -- 'thread' or 'conversation'
+    tweet_count INTEGER NOT NULL,           -- Number of tweets stored
+    is_complete BOOLEAN DEFAULT FALSE,      -- Did we fetch all available tweets?
+    fetched_at TEXT NOT NULL,               -- ISO 8601 timestamp
+    FOREIGN KEY (root_tweet_id) REFERENCES tweets(id),
+    FOREIGN KEY (focal_tweet_id) REFERENCES tweets(id)
+);
+
+CREATE INDEX idx_threads_conversation ON threads(conversation_id);
+CREATE INDEX idx_threads_focal ON threads(focal_tweet_id);
+```
+
+#### Updated `collections` Table
+
+Add new collection types:
+
+```sql
+-- collection_type now includes: 'like', 'bookmark', 'tweet', 'repost', 'thread', 'conversation'
+-- For thread/conversation collections, link to threads table:
+
+ALTER TABLE collections ADD COLUMN thread_id TEXT REFERENCES threads(id);
+```
+
+#### Tombstone Support
+
+Deleted tweets are represented as partial records:
+
+```sql
+-- Tombstone tweets have minimal data
+INSERT INTO tweets (
+    id,
+    text,
+    author_id,
+    author_username,
+    created_at,
+    conversation_id,
+    first_seen_at,
+    last_updated_at,
+    raw_json
+) VALUES (
+    'deleted_tweet_id',
+    '[Tweet unavailable]',
+    'unknown',
+    'unknown',
+    '1970-01-01T00:00:00Z',  -- Placeholder date
+    'conversation_id',
+    datetime('now'),
+    datetime('now'),
+    '{"tombstone": true, "reason": "deleted"}'
+);
+```
+
+### API Implementation
+
+#### Fetching Thread/Conversation
+
+Uses Twitter's `TweetDetail` GraphQL endpoint (ported from bird):
+
+```python
+async def fetch_thread(
+    client: TwitterClient,
+    tweet_id: str,
+    mode: Literal["thread", "conversation"] = "thread",
+    limit: int = 200,
+) -> ThreadResult:
+    """Fetch thread or conversation for a tweet.
+
+    Args:
+        tweet_id: Focal tweet ID to expand
+        mode: 'thread' for author-only chain, 'conversation' for all replies
+        limit: Maximum tweets to fetch (conversation mode only)
+
+    Returns:
+        ThreadResult with tweets and metadata
+    """
+    # 1. Fetch TweetDetail (returns threaded_conversation_with_injections_v2)
+    response = await client.fetch_tweet_detail(tweet_id)
+
+    # 2. Extract all tweets from response
+    all_tweets = parse_conversation_tweets(response)
+
+    # 3. Determine conversation root and author
+    focal_tweet = find_tweet_by_id(all_tweets, tweet_id)
+    conversation_id = focal_tweet.conversation_id
+    author_id = find_root_author(all_tweets, conversation_id)
+
+    # 4. Filter based on mode
+    if mode == "thread":
+        tweets = [t for t in all_tweets if is_thread_tweet(t, author_id, conversation_id)]
+    else:
+        tweets = [t for t in all_tweets if is_conversation_tweet(t, conversation_id)]
+        if len(tweets) > limit:
+            tweets = prioritize_conversation_tweets(tweets, author_id, limit)
+
+    # 5. Handle pagination if needed (conversation mode)
+    # TweetDetail returns cursor for more replies
+
+    return ThreadResult(
+        tweets=tweets,
+        conversation_id=conversation_id,
+        author_id=author_id,
+        focal_tweet_id=tweet_id,
+        is_complete=len(tweets) < limit,
+    )
+```
+
+### Rate Limiting for Thread Expansion
+
+Thread expansion uses **adaptive rate limiting**:
+
+```python
+class AdaptiveRateLimiter:
+    """Self-tuning rate limiter for thread expansion."""
+
+    def __init__(self, initial_delay: float = 0.5):
+        self.delay = initial_delay  # Start at 500ms
+        self.min_delay = 0.3
+        self.max_delay = 30.0
+        self.consecutive_successes = 0
+        self.consecutive_failures = 0
+
+    async def wait(self):
+        await asyncio.sleep(self.delay)
+
+    def on_success(self):
+        self.consecutive_successes += 1
+        self.consecutive_failures = 0
+        # Speed up after 5 consecutive successes
+        if self.consecutive_successes >= 5:
+            self.delay = max(self.min_delay, self.delay * 0.8)
+            self.consecutive_successes = 0
+
+    def on_rate_limit(self):
+        self.consecutive_failures += 1
+        self.consecutive_successes = 0
+        # Exponential backoff
+        self.delay = min(self.max_delay, self.delay * 2)
+
+    def should_stop(self) -> bool:
+        # Stop after 3 consecutive rate limits
+        return self.consecutive_failures >= 3
+```
+
+### Error Handling
+
+| Error Type | Behavior |
+|------------|----------|
+| Deleted tweet | Create tombstone, continue expansion |
+| Suspended account | Create tombstone with reason, continue |
+| 429 Rate Limit | Exponential backoff, stop after 3 failures |
+| 403 Forbidden | Stop immediately (possible ban risk) |
+| 404 Not Found | Trigger query ID refresh, retry once |
+| Network error | Retry with backoff, continue sync on success |
+
+### --with-threads During Sync
+
+When `--with-threads` is specified during sync:
+
+1. **Scope**: Only expand threads for **newly fetched tweets** in this sync run
+2. **Deduplication**: Skip tweets that already have thread data in DB
+3. **Progress**: Show separate progress for thread expansion phase
+
+```bash
+$ tweethoarder sync likes --with-threads
+[Syncing likes...]
+████████████████████████████████████████ 100% (150 new likes)
+[Expanding threads for 150 tweets...]
+████████████████████████████████████████ 100% (skipped 45 already expanded)
+[Saved 1,247 thread tweets]
+```
+
+### Output Format
+
+```bash
+$ tweethoarder thread 1234567890
+Fetching thread for tweet 1234567890...
+Found thread by @alice (15 tweets)
+Saved to database.
+
+$ tweethoarder thread 1234567890 --mode conversation
+Fetching conversation for tweet 1234567890...
+Found conversation (127 tweets, limited to 200)
+  - @alice: 15 tweets (thread author)
+  - 45 other participants
+Saved to database.
+```
+
+---
+
+## Enhanced HTML Export
+
+### Overview
+
+The HTML export generates a **single self-contained file** with embedded search and filtering capabilities. All tweet data is embedded as JSON, with JavaScript providing interactive features.
+
+### File Size Warning
+
+```bash
+$ tweethoarder export html --collection likes
+Warning: Exporting 25,000 tweets may create a large file (est. 45MB).
+Large files may load slowly in browsers. Continue? [y/N]
+```
+
+**Warning thresholds:**
+- 20,000 tweets OR
+- Estimated file size > 100MB
+
+### Search & Filter Features
+
+#### Pre-Computed Facets (at export time)
+
+These facets are computed during export for instant display:
+
+1. **Authors**: List of all authors with tweet counts
+2. **Months**: Year-month buckets with counts
+3. **Media Types**: has_photo, has_video, has_link, text_only
+
+#### Live-Computed Filters
+
+These update dynamically as user applies filters:
+
+1. **Full-text search**: Searches tweet text content
+2. **Date range**: Custom start/end dates
+3. **Engagement thresholds**: Min likes, min retweets
+4. **Custom author filter**: Filter to specific authors
+
+### HTML Structure
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TweetHoarder Export - Likes</title>
+    <style>
+        /* Inline CSS - responsive, clean design */
+        /* ~5KB minified */
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Liked Tweets</h1>
+        <p>Exported: 2025-01-03 | 5,234 tweets</p>
+    </header>
+
+    <aside id="filters">
+        <!-- Search box -->
+        <input type="search" id="search" placeholder="Search tweets...">
+
+        <!-- Pre-computed facets -->
+        <details open>
+            <summary>Authors (127)</summary>
+            <ul id="author-facets">
+                <!-- Populated from precomputed data -->
+            </ul>
+        </details>
+
+        <details>
+            <summary>Date Range</summary>
+            <input type="month" id="date-from">
+            <input type="month" id="date-to">
+        </details>
+
+        <details>
+            <summary>Media Type</summary>
+            <label><input type="checkbox" value="photo"> Has Photo (1,234)</label>
+            <label><input type="checkbox" value="video"> Has Video (567)</label>
+            <label><input type="checkbox" value="link"> Has Link (2,100)</label>
+        </details>
+    </aside>
+
+    <main id="tweets">
+        <!-- Tweets rendered here by JS -->
+    </main>
+
+    <script>
+        // Embedded tweet data
+        const TWEETS = [/* ... */];
+        const FACETS = {
+            authors: [/* {username, count} */],
+            months: [/* {month, count} */],
+            media: {photo: 1234, video: 567, link: 2100, text_only: 1333}
+        };
+
+        // Search and filter logic (~10KB minified)
+    </script>
+</body>
+</html>
+```
+
+### Search Implementation
+
+```javascript
+// Simplified search logic
+function searchTweets(query, filters) {
+    return TWEETS.filter(tweet => {
+        // Full-text search
+        if (query && !tweet.text.toLowerCase().includes(query.toLowerCase())) {
+            return false;
+        }
+
+        // Author filter
+        if (filters.authors.length && !filters.authors.includes(tweet.author.username)) {
+            return false;
+        }
+
+        // Date range
+        if (filters.dateFrom && tweet.created_at < filters.dateFrom) return false;
+        if (filters.dateTo && tweet.created_at > filters.dateTo) return false;
+
+        // Media type
+        if (filters.mediaTypes.length) {
+            const hasPhoto = tweet.media?.some(m => m.type === 'photo');
+            const hasVideo = tweet.media?.some(m => m.type === 'video');
+            const hasLink = tweet.urls?.length > 0;
+
+            const matches = filters.mediaTypes.some(type => {
+                if (type === 'photo') return hasPhoto;
+                if (type === 'video') return hasVideo;
+                if (type === 'link') return hasLink;
+                if (type === 'text_only') return !hasPhoto && !hasVideo && !hasLink;
+            });
+            if (!matches) return false;
+        }
+
+        return true;
+    });
+}
+
+// Update facet counts after filtering
+function updateFacetCounts(filteredTweets) {
+    // Live compute author counts for current filter
+    const authorCounts = {};
+    filteredTweets.forEach(t => {
+        authorCounts[t.author.username] = (authorCounts[t.author.username] || 0) + 1;
+    });
+    // Update UI...
+}
+```
+
+---
+
+## Bookmark Folder Export
+
+### Overview
+
+The sync command fetches **all bookmark folders** in one operation. Export commands can filter by folder.
+
+### Sync Behavior
+
+```bash
+$ tweethoarder sync bookmarks
+[Syncing bookmarks from all folders...]
+  - Default: 234 bookmarks
+  - Work: 89 bookmarks
+  - Read Later: 156 bookmarks
+████████████████████████████████████████ 100% (479 total)
+```
+
+### Export Filtering
+
+```bash
+# Export specific folder
+$ tweethoarder export json --collection bookmarks --folder "Work"
+
+# Export all bookmarks (default)
+$ tweethoarder export json --collection bookmarks
+
+# List available folders
+$ tweethoarder stats
+╭──────────────────────────────────────╮
+│         TweetHoarder Stats           │
+├──────────────────────────────────────┤
+│ Bookmarks:    479 total              │
+│   - Default:  234                    │
+│   - Work:      89                    │
+│   - Read Later: 156                  │
+╰──────────────────────────────────────╯
+```
+
+### Database
+
+Folder information is already stored in the `collections` table:
+- `bookmark_folder_id`: Twitter's folder ID
+- `bookmark_folder_name`: User-visible folder name
+
+---
+
+## Query ID Resilience
+
+### Current Issue
+
+The `UserTweets` operation is used in sync but missing from `FALLBACK_QUERY_IDS`.
+
+### Solution: Both Static + Dynamic Fallback
+
+1. **Add known IDs to constants.py**:
+
+```python
+FALLBACK_QUERY_IDS = {
+    "Bookmarks": "...",
+    "BookmarkFolderTimeline": "...",
+    "Likes": "...",
+    "TweetDetail": "...",
+    "SearchTimeline": "...",
+    "UserTweets": "...",           # ADD THIS
+    "UserTweetsAndReplies": "...", # ADD THIS
+    "Following": "...",
+    "Followers": "...",
+}
+```
+
+2. **Dynamic fallback**: If operation not in fallbacks, auto-trigger bundle refresh:
+
+```python
+async def get_query_id_with_fallback(
+    store: QueryIdStore,
+    operation: str,
+) -> str:
+    """Get query ID with automatic refresh fallback."""
+    # Try cache first
+    query_id = store.get(operation)
+    if query_id:
+        return query_id
+
+    # Try static fallback
+    if operation in FALLBACK_QUERY_IDS:
+        return FALLBACK_QUERY_IDS[operation]
+
+    # Dynamic fallback: refresh and retry
+    await store.refresh()
+    query_id = store.get(operation)
+    if query_id:
+        return query_id
+
+    raise QueryIdNotFound(f"Cannot find query ID for {operation}")
+```
+
+---
+
+## Example SQL Queries
+
+These queries demonstrate common operations on the TweetHoarder database.
+
+### Basic Queries
+
+```sql
+-- Get all liked tweets ordered by date
+SELECT t.*, c.added_at as liked_at
+FROM tweets t
+JOIN collections c ON t.id = c.tweet_id
+WHERE c.collection_type = 'like'
+ORDER BY c.added_at DESC;
+
+-- Get bookmarks from a specific folder
+SELECT t.*, c.bookmark_folder_name
+FROM tweets t
+JOIN collections c ON t.id = c.tweet_id
+WHERE c.collection_type = 'bookmark'
+  AND c.bookmark_folder_name = 'Work'
+ORDER BY c.added_at DESC;
+
+-- Count tweets by collection type
+SELECT collection_type, COUNT(*) as count
+FROM collections
+GROUP BY collection_type;
+```
+
+### Thread/Conversation Queries
+
+```sql
+-- Get all threads I've archived
+SELECT
+    th.id,
+    th.thread_type,
+    th.tweet_count,
+    th.fetched_at,
+    t.text as root_text,
+    t.author_username as author
+FROM threads th
+JOIN tweets t ON th.root_tweet_id = t.id
+ORDER BY th.fetched_at DESC;
+
+-- Get all tweets in a specific thread
+SELECT t.*
+FROM tweets t
+JOIN collections c ON t.id = c.tweet_id
+WHERE c.thread_id = 'thread-uuid-here'
+ORDER BY t.created_at;
+
+-- Find the thread containing a specific tweet
+SELECT th.*
+FROM threads th
+JOIN collections c ON th.id = c.thread_id
+WHERE c.tweet_id = '1234567890';
+
+-- Get conversation tree structure
+WITH RECURSIVE thread_tree AS (
+    -- Start with root tweet
+    SELECT
+        t.id,
+        t.text,
+        t.author_username,
+        t.in_reply_to_tweet_id,
+        0 as depth
+    FROM tweets t
+    WHERE t.id = (
+        SELECT root_tweet_id FROM threads WHERE id = 'thread-uuid'
+    )
+
+    UNION ALL
+
+    -- Recursively get replies
+    SELECT
+        t.id,
+        t.text,
+        t.author_username,
+        t.in_reply_to_tweet_id,
+        tt.depth + 1
+    FROM tweets t
+    JOIN thread_tree tt ON t.in_reply_to_tweet_id = tt.id
+    JOIN collections c ON t.id = c.tweet_id
+    WHERE c.thread_id = 'thread-uuid'
+)
+SELECT * FROM thread_tree ORDER BY depth, id;
+```
+
+### Search Queries
+
+```sql
+-- Full-text search across all tweets
+SELECT t.*, c.collection_type
+FROM tweets t
+JOIN collections c ON t.id = c.tweet_id
+WHERE t.text LIKE '%search term%'
+ORDER BY t.created_at DESC;
+
+-- Find tweets with media
+SELECT t.*
+FROM tweets t
+WHERE t.media_json IS NOT NULL
+  AND t.media_json != '[]'
+ORDER BY t.created_at DESC;
+
+-- Find highly-engaged tweets in my likes
+SELECT t.*, (t.like_count + t.retweet_count) as engagement
+FROM tweets t
+JOIN collections c ON t.id = c.tweet_id
+WHERE c.collection_type = 'like'
+ORDER BY engagement DESC
+LIMIT 50;
+
+-- Find tweets by specific author across all collections
+SELECT t.*, c.collection_type
+FROM tweets t
+JOIN collections c ON t.id = c.tweet_id
+WHERE t.author_username = 'elonmusk'
+ORDER BY t.created_at DESC;
+```
+
+### Statistics Queries
+
+```sql
+-- Tweets by month
+SELECT
+    strftime('%Y-%m', created_at) as month,
+    COUNT(*) as tweet_count
+FROM tweets
+GROUP BY month
+ORDER BY month DESC;
+
+-- Top authors in my likes
+SELECT
+    t.author_username,
+    t.author_display_name,
+    COUNT(*) as like_count
+FROM tweets t
+JOIN collections c ON t.id = c.tweet_id
+WHERE c.collection_type = 'like'
+GROUP BY t.author_id
+ORDER BY like_count DESC
+LIMIT 20;
+
+-- Database size by collection
+SELECT
+    c.collection_type,
+    COUNT(DISTINCT c.tweet_id) as unique_tweets,
+    SUM(LENGTH(t.raw_json)) as raw_json_bytes
+FROM collections c
+JOIN tweets t ON c.tweet_id = t.id
+GROUP BY c.collection_type;
+```
+
+### Maintenance Queries
+
+```sql
+-- Find orphaned tweets (not in any collection)
+SELECT t.id, t.text, t.author_username
+FROM tweets t
+LEFT JOIN collections c ON t.id = c.tweet_id
+WHERE c.tweet_id IS NULL;
+
+-- Find tombstone tweets
+SELECT id, conversation_id, first_seen_at
+FROM tweets
+WHERE text = '[Tweet unavailable]';
+
+-- Check sync progress
+SELECT * FROM sync_progress;
+
+-- Find incomplete thread expansions
+SELECT * FROM threads WHERE is_complete = FALSE;
+```
+
+---
+
+## Updated Implementation Phases
+
+### Phase 5: Additional Features (Updated)
+
+1. ✅ Quoted tweet resolution
+2. ✅ Stats command
+3. ✅ Progress display
+4. ✅ Config show/set commands
+5. ⏳ **Thread command** - Full implementation with thread/conversation modes
+6. ⏳ **--with-threads sync flag** - Thread expansion during sync
+
+### Phase 6: Export (Updated)
+
+1. ✅ JSON export
+2. ✅ Markdown export
+3. ✅ CSV export
+4. ⏳ **HTML export enhancement** - Add faceted search, filtering, embedded JS
+5. ⏳ **Bookmark folder filtering** - `--folder` flag for export commands
+
+### Phase 8: Query ID Resilience (New)
+
+1. ⏳ Add missing query IDs to FALLBACK_QUERY_IDS
+2. ⏳ Implement dynamic fallback (auto-refresh on missing ID)
+
+**Legend:** ✅ Complete | 🟡 Partial | ⏳ Pending
