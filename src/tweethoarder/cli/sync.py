@@ -149,15 +149,27 @@ async def sync_bookmarks_async(db_path: Path, count: float) -> dict[str, int]:
     headers = client.get_base_headers()
     synced_count = 0
 
+    cursor: str | None = None
+
     async with httpx.AsyncClient(headers=headers) as http_client:
-        response = await fetch_bookmarks_page(http_client, query_id)
-        tweets, _ = parse_bookmarks_response(response)
-        for raw_tweet in tweets:
-            tweet_data = extract_tweet_data(raw_tweet)
-            if tweet_data:
-                save_tweet(db_path, tweet_data)
-                add_to_collection(db_path, tweet_data["id"], "bookmark")
-                synced_count += 1
+        while synced_count < count:
+            response = await fetch_bookmarks_page(http_client, query_id, cursor)
+            tweets, cursor = parse_bookmarks_response(response)
+
+            if not tweets:
+                break
+
+            for raw_tweet in tweets:
+                if synced_count >= count:
+                    break
+                tweet_data = extract_tweet_data(raw_tweet)
+                if tweet_data:
+                    save_tweet(db_path, tweet_data)
+                    add_to_collection(db_path, tweet_data["id"], "bookmark")
+                    synced_count += 1
+
+            if not cursor:
+                break
 
     return {"synced_count": synced_count}
 

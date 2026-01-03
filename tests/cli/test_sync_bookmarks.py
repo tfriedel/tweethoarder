@@ -166,3 +166,130 @@ def test_bookmarks_command_calls_sync_bookmarks_async() -> None:
     mock_sync.assert_called_once()
     assert result.exit_code == 0
     assert "5" in result.output
+
+
+@pytest.mark.asyncio
+async def test_sync_bookmarks_async_paginates_with_cursor(tmp_path: Path) -> None:
+    """sync_bookmarks_async should paginate through multiple pages using cursor."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_bookmarks_async
+
+    db_path = tmp_path / "test.db"
+
+    # First page with cursor, second page without cursor
+    first_page = _make_bookmarks_response([_make_bookmark_entry("1", "First")])
+    first_page["data"]["bookmark_timeline_v2"]["timeline"]["instructions"][0]["entries"].append(
+        {
+            "entryId": "cursor-bottom-123",
+            "content": {"value": "next_cursor"},
+        }
+    )
+    second_page = _make_bookmarks_response([_make_bookmark_entry("2", "Second")])
+
+    mock_http_response_1 = MagicMock()
+    mock_http_response_1.json.return_value = first_page
+    mock_http_response_1.raise_for_status = MagicMock()
+
+    mock_http_response_2 = MagicMock()
+    mock_http_response_2.json.return_value = second_page
+    mock_http_response_2.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t"}
+        with patch("tweethoarder.query_ids.store.QueryIdStore") as mock_store_cls:
+            mock_store = MagicMock()
+            mock_store.get.return_value = "BOOK123"
+            mock_store_cls.return_value = mock_store
+            with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+                mock_client = AsyncMock()
+                mock_client.get.side_effect = [mock_http_response_1, mock_http_response_2]
+                mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+                result = await sync_bookmarks_async(db_path=db_path, count=10)
+
+    assert result["synced_count"] == 2
+    assert mock_client.get.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_sync_bookmarks_async_respects_count_limit(tmp_path: Path) -> None:
+    """sync_bookmarks_async should stop syncing when count is reached."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_bookmarks_async
+
+    db_path = tmp_path / "test.db"
+
+    # Page with 3 bookmarks
+    page = _make_bookmarks_response(
+        [
+            _make_bookmark_entry("1", "First"),
+            _make_bookmark_entry("2", "Second"),
+            _make_bookmark_entry("3", "Third"),
+        ]
+    )
+
+    mock_http_response = MagicMock()
+    mock_http_response.json.return_value = page
+    mock_http_response.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t"}
+        with patch("tweethoarder.query_ids.store.QueryIdStore") as mock_store_cls:
+            mock_store = MagicMock()
+            mock_store.get.return_value = "BOOK123"
+            mock_store_cls.return_value = mock_store
+            with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+                mock_client = AsyncMock()
+                mock_client.get.return_value = mock_http_response
+                mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+                result = await sync_bookmarks_async(db_path=db_path, count=2)
+
+    assert result["synced_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_sync_bookmarks_async_stops_pagination_when_count_reached(tmp_path: Path) -> None:
+    """sync_bookmarks_async should not fetch more pages when count is reached."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_bookmarks_async
+
+    db_path = tmp_path / "test.db"
+
+    # Page with 2 bookmarks and a cursor (would normally trigger more fetches)
+    page = _make_bookmarks_response(
+        [
+            _make_bookmark_entry("1", "First"),
+            _make_bookmark_entry("2", "Second"),
+        ]
+    )
+    page["data"]["bookmark_timeline_v2"]["timeline"]["instructions"][0]["entries"].append(
+        {
+            "entryId": "cursor-bottom-123",
+            "content": {"value": "next_cursor"},
+        }
+    )
+
+    mock_http_response = MagicMock()
+    mock_http_response.json.return_value = page
+    mock_http_response.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t"}
+        with patch("tweethoarder.query_ids.store.QueryIdStore") as mock_store_cls:
+            mock_store = MagicMock()
+            mock_store.get.return_value = "BOOK123"
+            mock_store_cls.return_value = mock_store
+            with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+                mock_client = AsyncMock()
+                mock_client.get.return_value = mock_http_response
+                mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+                result = await sync_bookmarks_async(db_path=db_path, count=2)
+
+    # Should only fetch once since count was reached
+    assert mock_client.get.call_count == 1
+    assert result["synced_count"] == 2
