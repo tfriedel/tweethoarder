@@ -1,0 +1,203 @@
+"""Tests for Twitter timelines client (likes, bookmarks)."""
+
+import pytest
+
+
+def test_build_likes_url_includes_query_id() -> None:
+    """build_likes_url should include the Likes query ID in the path."""
+    from tweethoarder.client.timelines import build_likes_url
+
+    url = build_likes_url(query_id="ABC123", user_id="12345")
+
+    assert "ABC123" in url
+    assert "/graphql/" in url
+
+
+def test_build_likes_url_includes_user_id_in_variables() -> None:
+    """build_likes_url should include user_id in the variables query param."""
+    from tweethoarder.client.timelines import build_likes_url
+
+    url = build_likes_url(query_id="ABC123", user_id="12345")
+
+    assert "userId" in url
+    assert "12345" in url
+
+
+def test_build_likes_url_includes_cursor_when_provided() -> None:
+    """build_likes_url should include cursor for pagination when provided."""
+    from tweethoarder.client.timelines import build_likes_url
+
+    url = build_likes_url(query_id="ABC123", user_id="12345", cursor="cursor_abc")
+
+    assert "cursor_abc" in url
+
+
+def test_build_likes_url_includes_features() -> None:
+    """build_likes_url should include features query param."""
+    from tweethoarder.client.timelines import build_likes_url
+
+    url = build_likes_url(query_id="ABC123", user_id="12345")
+
+    assert "features" in url
+
+
+def test_fetch_likes_page_exists() -> None:
+    """fetch_likes_page function should be importable."""
+    from tweethoarder.client.timelines import fetch_likes_page
+
+    assert callable(fetch_likes_page)
+
+
+def test_fetch_likes_page_accepts_required_params() -> None:
+    """fetch_likes_page should accept client, query_id, and user_id parameters."""
+    import inspect
+
+    from tweethoarder.client.timelines import fetch_likes_page
+
+    sig = inspect.signature(fetch_likes_page)
+    params = list(sig.parameters.keys())
+
+    assert "client" in params
+    assert "query_id" in params
+    assert "user_id" in params
+
+
+@pytest.mark.asyncio
+async def test_fetch_likes_page_returns_dict() -> None:
+    """fetch_likes_page should return parsed JSON response."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_likes_page
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"data": {"user": {"result": {}}}}
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_response
+
+    result = await fetch_likes_page(
+        client=mock_client,
+        query_id="ABC123",
+        user_id="12345",
+    )
+
+    assert isinstance(result, dict)
+    assert "data" in result
+
+
+def test_parse_likes_response_extracts_tweets() -> None:
+    """parse_likes_response should extract tweet entries from API response."""
+    from tweethoarder.client.timelines import parse_likes_response
+
+    response = {
+        "data": {
+            "user": {
+                "result": {
+                    "timeline_v2": {
+                        "timeline": {
+                            "instructions": [
+                                {
+                                    "type": "TimelineAddEntries",
+                                    "entries": [
+                                        {
+                                            "entryId": "tweet-123",
+                                            "content": {
+                                                "entryType": "TimelineTimelineItem",
+                                                "itemContent": {
+                                                    "tweet_results": {
+                                                        "result": {
+                                                            "rest_id": "123",
+                                                            "legacy": {"full_text": "Hello"},
+                                                        }
+                                                    }
+                                                },
+                                            },
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    tweets, _cursor = parse_likes_response(response)
+
+    assert len(tweets) == 1
+    assert tweets[0]["rest_id"] == "123"
+
+
+def test_parse_likes_response_extracts_cursor() -> None:
+    """parse_likes_response should extract the next cursor for pagination."""
+    from tweethoarder.client.timelines import parse_likes_response
+
+    response = {
+        "data": {
+            "user": {
+                "result": {
+                    "timeline_v2": {
+                        "timeline": {
+                            "instructions": [
+                                {
+                                    "type": "TimelineAddEntries",
+                                    "entries": [
+                                        {
+                                            "entryId": "cursor-bottom-12345",
+                                            "content": {
+                                                "entryType": "TimelineTimelineCursor",
+                                                "value": "next_cursor_value",
+                                                "cursorType": "Bottom",
+                                            },
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    _tweets, cursor = parse_likes_response(response)
+
+    assert cursor == "next_cursor_value"
+
+
+def test_extract_tweet_data_returns_db_format() -> None:
+    """extract_tweet_data should convert raw tweet to database format."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123456789",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "987654321",
+                    "legacy": {
+                        "screen_name": "testuser",
+                        "name": "Test User",
+                    },
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "Hello, world!",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123456789",
+            "reply_count": 5,
+            "retweet_count": 10,
+            "favorite_count": 20,
+            "quote_count": 2,
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert result["id"] == "123456789"
+    assert result["text"] == "Hello, world!"
+    assert result["author_id"] == "987654321"
+    assert result["author_username"] == "testuser"

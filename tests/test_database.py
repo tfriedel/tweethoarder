@@ -97,3 +97,70 @@ def test_init_database_creates_indexes(tmp_path: Path) -> None:
         "idx_collections_added",
     }
     assert expected_indexes.issubset(indexes)
+
+
+def test_save_tweet_inserts_into_database(tmp_path: Path) -> None:
+    """save_tweet should insert tweet data into the tweets table."""
+    from tweethoarder.storage.database import init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    tweet_data = {
+        "id": "123456789",
+        "text": "Hello, world!",
+        "author_id": "987654321",
+        "author_username": "testuser",
+        "author_display_name": "Test User",
+        "created_at": "2025-01-01T12:00:00Z",
+        "conversation_id": "123456789",
+        "reply_count": 5,
+        "retweet_count": 10,
+        "like_count": 20,
+        "quote_count": 2,
+    }
+
+    save_tweet(db_path, tweet_data)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("SELECT id, text FROM tweets WHERE id = ?", ("123456789",))
+    row = cursor.fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] == "123456789"
+    assert row[1] == "Hello, world!"
+
+
+def test_add_to_collection_inserts_into_collections(tmp_path: Path) -> None:
+    """add_to_collection should add tweet to specified collection."""
+    from tweethoarder.storage.database import (
+        add_to_collection,
+        init_database,
+        save_tweet,
+    )
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    tweet_data = {
+        "id": "123456789",
+        "text": "Hello!",
+        "author_id": "987654321",
+        "author_username": "testuser",
+        "created_at": "2025-01-01T12:00:00Z",
+    }
+    save_tweet(db_path, tweet_data)
+    add_to_collection(db_path, "123456789", "like")
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute(
+        "SELECT tweet_id, collection_type FROM collections WHERE tweet_id = ?",
+        ("123456789",),
+    )
+    row = cursor.fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] == "123456789"
+    assert row[1] == "like"

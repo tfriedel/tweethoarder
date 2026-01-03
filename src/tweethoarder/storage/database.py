@@ -98,3 +98,55 @@ def init_database(db_path: Path) -> None:
         conn.execute(index_sql)
     conn.commit()
     conn.close()
+
+
+def save_tweet(db_path: Path, tweet_data: dict) -> None:
+    """Save a tweet to the database."""
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO tweets (
+            id, text, author_id, author_username, author_display_name,
+            created_at, conversation_id, reply_count, retweet_count,
+            like_count, quote_count, first_seen_at, last_updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            tweet_data["id"],
+            tweet_data["text"],
+            tweet_data["author_id"],
+            tweet_data["author_username"],
+            tweet_data.get("author_display_name"),
+            tweet_data["created_at"],
+            tweet_data.get("conversation_id"),
+            tweet_data.get("reply_count", 0),
+            tweet_data.get("retweet_count", 0),
+            tweet_data.get("like_count", 0),
+            tweet_data.get("quote_count", 0),
+            now,
+            now,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def add_to_collection(db_path: Path, tweet_id: str, collection_type: str) -> None:
+    """Add a tweet to a collection."""
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO collections (
+            tweet_id, collection_type, added_at, synced_at
+        ) VALUES (?, ?, ?, ?)
+        """,
+        (tweet_id, collection_type, now, now),
+    )
+    conn.commit()
+    conn.close()
