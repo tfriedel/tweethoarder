@@ -83,6 +83,58 @@ async def test_fetch_bookmarks_page_returns_dict() -> None:
     assert "data" in result
 
 
+def test_parse_bookmarks_response_extracts_tweets() -> None:
+    """parse_bookmarks_response should extract tweet entries from API response."""
+    from tweethoarder.client.timelines import parse_bookmarks_response
+
+    response = {
+        "data": {
+            "bookmark_timeline_v2": {
+                "timeline": {
+                    "instructions": [
+                        {
+                            "type": "TimelineAddEntries",
+                            "entries": [
+                                {
+                                    "entryId": "tweet-123",
+                                    "content": {
+                                        "entryType": "TimelineTimelineItem",
+                                        "itemContent": {
+                                            "tweet_results": {
+                                                "result": {
+                                                    "rest_id": "123",
+                                                    "legacy": {"full_text": "Hello"},
+                                                }
+                                            }
+                                        },
+                                    },
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        }
+    }
+
+    tweets, _cursor = parse_bookmarks_response(response)
+
+    assert len(tweets) == 1
+    assert tweets[0]["rest_id"] == "123"
+
+
+def test_fetch_bookmarks_page_accepts_cursor_param() -> None:
+    """fetch_bookmarks_page should accept optional cursor parameter."""
+    import inspect
+
+    from tweethoarder.client.timelines import fetch_bookmarks_page
+
+    sig = inspect.signature(fetch_bookmarks_page)
+    params = list(sig.parameters.keys())
+
+    assert "cursor" in params
+
+
 def test_build_likes_url_includes_query_id() -> None:
     """build_likes_url should include the Likes query ID in the path."""
     from tweethoarder.client.timelines import build_likes_url

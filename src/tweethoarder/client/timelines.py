@@ -70,9 +70,10 @@ def build_likes_url(query_id: str, user_id: str, cursor: str | None = None) -> s
 async def fetch_bookmarks_page(
     client: httpx.AsyncClient,
     query_id: str,
+    cursor: str | None = None,
 ) -> dict[str, Any]:
     """Fetch a page of bookmarks from the Twitter API."""
-    url = build_bookmarks_url(query_id)
+    url = build_bookmarks_url(query_id, cursor)
     response = await client.get(url)
     response.raise_for_status()
     result: dict[str, Any] = response.json()
@@ -133,6 +134,33 @@ async def fetch_likes_page(
         return result
 
     raise RuntimeError("Unreachable: retry loop should always return or raise")
+
+
+def parse_bookmarks_response(
+    response: dict[str, Any],
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Parse bookmarks API response and extract tweets and next cursor."""
+    tweets: list[dict[str, Any]] = []
+    cursor: str | None = None
+
+    timeline = response.get("data", {}).get("bookmark_timeline_v2", {}).get("timeline", {})
+
+    for instruction in timeline.get("instructions", []):
+        if instruction.get("type") != "TimelineAddEntries":
+            continue
+        for entry in instruction.get("entries", []):
+            entry_id = entry.get("entryId", "")
+            content = entry.get("content", {})
+
+            if entry_id.startswith("tweet-"):
+                item_content = content.get("itemContent", {})
+                tweet_result = item_content.get("tweet_results", {}).get("result")
+                if tweet_result:
+                    tweets.append(tweet_result)
+            elif entry_id.startswith("cursor-bottom-"):
+                cursor = content.get("value")
+
+    return tweets, cursor
 
 
 def parse_likes_response(
