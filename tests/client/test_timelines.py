@@ -201,3 +201,29 @@ def test_extract_tweet_data_returns_db_format() -> None:
     assert result["text"] == "Hello, world!"
     assert result["author_id"] == "987654321"
     assert result["author_username"] == "testuser"
+
+
+def test_extract_tweet_data_converts_date_to_iso8601() -> None:
+    """extract_tweet_data should convert Twitter date format to ISO 8601."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "legacy": {"screen_name": "user", "name": "User"},
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "Hello",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123",
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert result["created_at"] == "2025-01-01T12:00:00+00:00"

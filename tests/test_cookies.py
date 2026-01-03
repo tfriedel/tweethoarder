@@ -96,3 +96,29 @@ def test_resolve_cookies_raises_when_no_cookies_found(
 
     with pytest.raises(CookieError, match="No Twitter cookies found"):
         resolve_cookies(home_dir=tmp_path)
+
+
+def test_resolve_cookies_includes_twid_from_firefox(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    """Should include twid cookie when available from Firefox."""
+    from tweethoarder.auth.cookies import resolve_cookies
+
+    monkeypatch.delenv("TWITTER_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("TWITTER_CT0", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty_config"))
+
+    firefox_dir = tmp_path / ".mozilla" / "firefox" / "test_profile"
+    firefox_dir.mkdir(parents=True)
+    _create_firefox_cookies_db(
+        firefox_dir / "cookies.sqlite",
+        [
+            ("auth_token", "firefox_auth_token"),
+            ("ct0", "firefox_ct0"),
+            ("twid", "u%3D12345"),
+        ],
+    )
+
+    cookies = resolve_cookies(home_dir=tmp_path)
+
+    assert cookies["twid"] == "u%3D12345"

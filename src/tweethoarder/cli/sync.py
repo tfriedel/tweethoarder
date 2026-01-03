@@ -1,6 +1,7 @@
 """Sync commands for TweetHoarder CLI."""
 
 from pathlib import Path
+from typing import Any
 
 import httpx
 import typer
@@ -22,7 +23,7 @@ app = typer.Typer(
 )
 
 
-async def sync_likes_async(db_path: Path, count: int | float) -> dict:
+async def sync_likes_async(db_path: Path, count: int | float) -> dict[str, Any]:
     """Async implementation of likes sync."""
     init_database(db_path)
 
@@ -40,19 +41,27 @@ async def sync_likes_async(db_path: Path, count: int | float) -> dict:
         raise ValueError("Could not determine user ID from cookies")
 
     synced_count = 0
+    cursor: str | None = None
+    headers = client.get_base_headers()
 
-    async with httpx.AsyncClient() as http_client:
-        http_client.headers.update(client.get_base_headers())
-        response = await fetch_likes_page(http_client, query_id, user_id)
-        tweets, _cursor = parse_likes_response(response)
+    async with httpx.AsyncClient(headers=headers) as http_client:
+        while synced_count < count:
+            response = await fetch_likes_page(http_client, query_id, user_id, cursor)
+            tweets, cursor = parse_likes_response(response)
 
-        for raw_tweet in tweets:
-            if synced_count >= count:
+            if not tweets:
                 break
-            tweet_data = extract_tweet_data(raw_tweet)
-            save_tweet(db_path, tweet_data)
-            add_to_collection(db_path, tweet_data["id"], "like")
-            synced_count += 1
+
+            for raw_tweet in tweets:
+                if synced_count >= count:
+                    break
+                tweet_data = extract_tweet_data(raw_tweet)
+                save_tweet(db_path, tweet_data)
+                add_to_collection(db_path, tweet_data["id"], "like")
+                synced_count += 1
+
+            if not cursor:
+                break
 
     return {"synced_count": synced_count}
 

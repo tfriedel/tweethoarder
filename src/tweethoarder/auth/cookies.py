@@ -38,6 +38,9 @@ def resolve_cookies(home_dir: Path | None = None) -> dict[str, str]:
         auth_token = cookies.get("auth_token")
         ct0 = cookies.get("ct0")
         if auth_token and ct0:
-            return {"auth_token": auth_token, "ct0": ct0}
+            result = {"auth_token": auth_token, "ct0": ct0}
+            if "twid" in cookies:
+                result["twid"] = cookies["twid"]
+            return result
 
     raise CookieError("No Twitter cookies found")
