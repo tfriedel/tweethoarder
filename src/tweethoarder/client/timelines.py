@@ -36,6 +36,15 @@ def build_bookmarks_url(query_id: str, cursor: str | None = None) -> str:
     return f"{TWITTER_API_BASE}/{query_id}/Bookmarks?{params}"
 
 
+def build_user_tweets_url(query_id: str, user_id: str, cursor: str | None = None) -> str:
+    """Build URL for fetching user tweets from Twitter GraphQL API."""
+    variables: dict[str, str] = {"userId": user_id}
+    if cursor:
+        variables["cursor"] = cursor
+    params = urlencode({"variables": json.dumps(variables)})
+    return f"{TWITTER_API_BASE}/{query_id}/UserTweets?{params}"
+
+
 def build_likes_url(query_id: str, user_id: str, cursor: str | None = None) -> str:
     """Build URL for fetching likes from Twitter GraphQL API.
 
@@ -65,6 +74,20 @@ def build_likes_url(query_id: str, user_id: str, cursor: str | None = None) -> s
         }
     )
     return f"{TWITTER_API_BASE}/{query_id}/Likes?{params}"
+
+
+async def fetch_user_tweets_page(
+    client: httpx.AsyncClient,
+    query_id: str,
+    user_id: str,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Fetch a page of user tweets from the Twitter API."""
+    url = build_user_tweets_url(query_id, user_id, cursor)
+    response = await client.get(url)
+    response.raise_for_status()
+    result: dict[str, Any] = response.json()
+    return result
 
 
 async def fetch_bookmarks_page(
@@ -152,6 +175,39 @@ def parse_bookmarks_response(
     cursor: str | None = None
 
     timeline = response.get("data", {}).get("bookmark_timeline_v2", {}).get("timeline", {})
+
+    for instruction in timeline.get("instructions", []):
+        if instruction.get("type") != "TimelineAddEntries":
+            continue
+        for entry in instruction.get("entries", []):
+            entry_id = entry.get("entryId", "")
+            content = entry.get("content", {})
+
+            if entry_id.startswith("tweet-"):
+                item_content = content.get("itemContent", {})
+                tweet_result = item_content.get("tweet_results", {}).get("result")
+                if tweet_result:
+                    tweets.append(tweet_result)
+            elif entry_id.startswith("cursor-bottom-"):
+                cursor = content.get("value")
+
+    return tweets, cursor
+
+
+def parse_user_tweets_response(
+    response: dict[str, Any],
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Parse user tweets API response and extract tweets and next cursor."""
+    tweets: list[dict[str, Any]] = []
+    cursor: str | None = None
+
+    timeline = (
+        response.get("data", {})
+        .get("user", {})
+        .get("result", {})
+        .get("timeline_v2", {})
+        .get("timeline", {})
+    )
 
     for instruction in timeline.get("instructions", []):
         if instruction.get("type") != "TimelineAddEntries":
