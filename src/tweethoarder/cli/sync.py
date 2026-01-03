@@ -127,6 +127,11 @@ def likes(
     typer.echo(f"Synced {result['synced_count']} likes.")
 
 
+async def sync_bookmarks_async(db_path: Path, count: float) -> None:
+    """Sync bookmarks asynchronously."""
+    pass
+
+
 @app.command()
 def bookmarks(
     count: int = typer.Option(100, "--count", "-c", help="Number of bookmarks to sync."),
