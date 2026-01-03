@@ -78,20 +78,23 @@ async def fetch_likes_page(
     current_query_id = query_id
     url = build_likes_url(current_query_id, user_id, cursor)
     refreshed = False
+    attempt = 0
 
-    for attempt in range(max_retries):
+    while attempt < max_retries:
         response = await client.get(url)
 
         if response.status_code == 404 and on_query_id_refresh and not refreshed:
             current_query_id = await on_query_id_refresh()
             url = build_likes_url(current_query_id, user_id, cursor)
             refreshed = True
+            attempt = 0  # Reset attempts after refresh to give new ID a fair chance
             continue
 
         if response.status_code == 429:
             if attempt < max_retries - 1:
                 delay = base_delay * (2**attempt)
                 await asyncio.sleep(delay)
+                attempt += 1
                 continue
             response.raise_for_status()
 
