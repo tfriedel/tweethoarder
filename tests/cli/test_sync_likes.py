@@ -237,3 +237,57 @@ def test_likes_command_calls_sync_likes_async() -> None:
 
     mock_sync.assert_called_once()
     assert result.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_likes_async_skips_incomplete_tweets(tmp_path: Path) -> None:
+    """sync_likes_async should skip tweets with missing required fields."""
+    import sqlite3
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_likes_async
+
+    db_path = tmp_path / "test.db"
+
+    incomplete_tweet = {
+        "entryId": "tweet-999",
+        "content": {
+            "entryType": "TimelineTimelineItem",
+            "itemContent": {
+                "tweet_results": {
+                    "result": {
+                        "rest_id": None,
+                        "core": {},
+                        "legacy": {},
+                    }
+                }
+            },
+        },
+    }
+
+    mock_response = _make_likes_response(
+        [_make_tweet_entry("123", "Valid tweet"), incomplete_tweet]
+    )
+
+    mock_http_response = MagicMock()
+    mock_http_response.json.return_value = mock_response
+    mock_http_response.raise_for_status = MagicMock()
+    mock_http_response.status_code = 200
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t", "twid": "u%3D12345"}
+        with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_http_response
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            result = await sync_likes_async(db_path=db_path, count=10)
+
+    assert result["synced_count"] == 1
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("SELECT COUNT(*) FROM tweets")
+    count = cursor.fetchone()[0]
+    conn.close()
+
+    assert count == 1

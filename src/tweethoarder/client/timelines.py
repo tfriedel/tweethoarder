@@ -1,15 +1,18 @@
 """Twitter timelines client for likes and bookmarks."""
 
+import asyncio
 import json
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
+import httpx
+
 from tweethoarder.client.features import build_likes_features
 from tweethoarder.query_ids.constants import TWITTER_API_BASE
 
 if TYPE_CHECKING:
-    import httpx
+    pass
 
 TWITTER_DATE_FORMAT = "%a %b %d %H:%M:%S %z %Y"
 
@@ -39,29 +42,46 @@ def build_likes_url(query_id: str, user_id: str, cursor: str | None = None) -> s
 
 
 async def fetch_likes_page(
-    client: "httpx.AsyncClient",
+    client: httpx.AsyncClient,
     query_id: str,
     user_id: str,
     cursor: str | None = None,
+    max_retries: int = 5,
+    base_delay: float = 1.0,
 ) -> dict[str, Any]:
-    """Fetch a page of likes from the Twitter API.
+    """Fetch a page of likes from the Twitter API with retry on rate limit.
 
     Args:
         client: The httpx async client with authentication headers.
         query_id: The GraphQL query ID for the Likes endpoint.
         user_id: The Twitter user ID whose likes to fetch.
         cursor: Optional pagination cursor for fetching subsequent pages.
+        max_retries: Maximum number of retry attempts on rate limit.
+        base_delay: Base delay in seconds for exponential backoff.
 
     Returns:
         The parsed JSON response from the API.
 
     Raises:
-        httpx.HTTPStatusError: If the API request fails.
+        httpx.HTTPStatusError: If the API request fails after all retries.
     """
     url = build_likes_url(query_id, user_id, cursor)
+
+    for attempt in range(max_retries):
+        response = await client.get(url)
+
+        if response.status_code == 429:
+            delay = base_delay * (2**attempt)
+            await asyncio.sleep(delay)
+            continue
+
+        response.raise_for_status()
+        result: dict[str, Any] = response.json()
+        return result
+
     response = await client.get(url)
     response.raise_for_status()
-    result: dict[str, Any] = response.json()
+    result = response.json()
     return result
 
 
@@ -122,7 +142,7 @@ def _convert_twitter_date_to_iso8601(twitter_date: str | None) -> str | None:
     return parsed.isoformat()
 
 
-def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any]:
+def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     """Extract and convert raw tweet data to database format.
 
     Args:
@@ -131,18 +151,28 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any]:
     Returns:
         Dictionary with normalized tweet data ready for database storage,
         including id, text, author info, timestamps, and engagement counts.
+        Returns None if required fields are missing.
     """
     legacy = raw_tweet.get("legacy", {})
     user_result = raw_tweet.get("core", {}).get("user_results", {}).get("result", {})
     user_legacy = user_result.get("legacy", {})
 
+    tweet_id = raw_tweet.get("rest_id")
+    text = legacy.get("full_text")
+    author_id = user_result.get("rest_id")
+    author_username = user_legacy.get("screen_name")
+    created_at = _convert_twitter_date_to_iso8601(legacy.get("created_at"))
+
+    if not all([tweet_id, text, author_id, author_username, created_at]):
+        return None
+
     return {
-        "id": raw_tweet.get("rest_id"),
-        "text": legacy.get("full_text"),
-        "author_id": user_result.get("rest_id"),
-        "author_username": user_legacy.get("screen_name"),
+        "id": tweet_id,
+        "text": text,
+        "author_id": author_id,
+        "author_username": author_username,
         "author_display_name": user_legacy.get("name"),
-        "created_at": _convert_twitter_date_to_iso8601(legacy.get("created_at")),
+        "created_at": created_at,
         "conversation_id": legacy.get("conversation_id_str"),
         "reply_count": legacy.get("reply_count", 0),
         "retweet_count": legacy.get("retweet_count", 0),

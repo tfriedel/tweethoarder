@@ -227,3 +227,54 @@ def test_extract_tweet_data_converts_date_to_iso8601() -> None:
     result = extract_tweet_data(raw_tweet)
 
     assert result["created_at"] == "2025-01-01T12:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_fetch_likes_page_retries_on_rate_limit() -> None:
+    """fetch_likes_page should retry with backoff on 429 rate limit."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    import httpx
+
+    from tweethoarder.client.timelines import fetch_likes_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+    rate_limit_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Rate limited", request=MagicMock(), response=rate_limit_response
+    )
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"user": {"result": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [rate_limit_response, success_response]
+
+    with patch("tweethoarder.client.timelines.asyncio.sleep", new_callable=AsyncMock):
+        result = await fetch_likes_page(
+            client=mock_client,
+            query_id="ABC123",
+            user_id="12345",
+        )
+
+    assert mock_client.get.call_count == 2
+    assert "data" in result
+
+
+def test_extract_tweet_data_returns_none_for_missing_required_fields() -> None:
+    """extract_tweet_data should return None when required fields are missing."""
+    from typing import Any
+
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    incomplete_tweet: dict[str, Any] = {
+        "rest_id": None,
+        "core": {},
+        "legacy": {},
+    }
+
+    result = extract_tweet_data(incomplete_tweet)
+
+    assert result is None

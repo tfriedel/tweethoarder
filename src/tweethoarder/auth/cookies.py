@@ -16,9 +16,13 @@ def resolve_cookies(home_dir: Path | None = None) -> dict[str, str]:
     """Resolve cookies using priority-based fallback chain."""
     auth_token = os.environ.get("TWITTER_AUTH_TOKEN")
     ct0 = os.environ.get("TWITTER_CT0")
+    twid = os.environ.get("TWITTER_TWID")
 
     if auth_token and ct0:
-        return {"auth_token": auth_token, "ct0": ct0}
+        result = {"auth_token": auth_token, "ct0": ct0}
+        if twid:
+            result["twid"] = twid
+        return result
 
     config_path = get_config_dir() / "config.toml"
     if config_path.exists():
@@ -27,8 +31,12 @@ def resolve_cookies(home_dir: Path | None = None) -> dict[str, str]:
         auth_data = data.get("auth", {})
         auth_token = auth_data.get("auth_token")
         ct0 = auth_data.get("ct0")
+        twid = auth_data.get("twid")
         if auth_token and ct0:
-            return {"auth_token": auth_token, "ct0": ct0}
+            result = {"auth_token": auth_token, "ct0": ct0}
+            if twid:
+                result["twid"] = twid
+            return result
 
     if home_dir is None:
         home_dir = Path.home()

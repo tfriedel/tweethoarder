@@ -24,7 +24,23 @@ app = typer.Typer(
 
 
 async def sync_likes_async(db_path: Path, count: int | float) -> dict[str, Any]:
-    """Async implementation of likes sync."""
+    """Sync liked tweets from Twitter to local database.
+
+    Fetches the user's liked tweets from the Twitter API and saves them
+    to the local SQLite database. Uses pagination to fetch multiple pages
+    until the requested count is reached or all likes are synced.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        count: Maximum number of likes to sync. Use float('inf') for all.
+
+    Returns:
+        Dictionary with 'synced_count' key containing the number of
+        tweets successfully synced.
+
+    Raises:
+        ValueError: If no cookies are found or user ID cannot be determined.
+    """
     init_database(db_path)
 
     cookies = resolve_cookies()
@@ -56,6 +72,8 @@ async def sync_likes_async(db_path: Path, count: int | float) -> dict[str, Any]:
                 if synced_count >= count:
                     break
                 tweet_data = extract_tweet_data(raw_tweet)
+                if tweet_data is None:
+                    continue
                 save_tweet(db_path, tweet_data)
                 add_to_collection(db_path, tweet_data["id"], "like")
                 synced_count += 1

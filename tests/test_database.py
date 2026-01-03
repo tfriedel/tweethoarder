@@ -204,3 +204,30 @@ def test_save_tweet_preserves_first_seen_at_on_update(tmp_path: Path) -> None:
 
     assert row[0] == original_first_seen
     assert row[1] == 20
+
+
+def test_save_tweet_uses_single_upsert_operation(tmp_path: Path) -> None:
+    """save_tweet should use a single UPSERT for efficiency."""
+    from tweethoarder.storage.database import init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    tweet_data = {
+        "id": "123456789",
+        "text": "Hello!",
+        "author_id": "987654321",
+        "author_username": "testuser",
+        "created_at": "2025-01-01T12:00:00Z",
+    }
+
+    save_tweet(db_path, tweet_data)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute(
+        "SELECT first_seen_at, last_updated_at FROM tweets WHERE id = ?", ("123456789",)
+    )
+    first_save = cursor.fetchone()
+    conn.close()
+
+    assert first_save[0] == first_save[1]

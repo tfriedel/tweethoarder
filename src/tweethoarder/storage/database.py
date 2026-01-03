@@ -104,7 +104,8 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
     """Save a tweet to the database.
 
     Inserts a new tweet or updates an existing one while preserving
-    the original first_seen_at timestamp.
+    the original first_seen_at timestamp. Uses a single UPSERT operation
+    for efficiency.
 
     Args:
         db_path: Path to the SQLite database file.
@@ -120,11 +121,23 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
-            INSERT OR IGNORE INTO tweets (
+            INSERT INTO tweets (
                 id, text, author_id, author_username, author_display_name,
                 created_at, conversation_id, reply_count, retweet_count,
                 like_count, quote_count, first_seen_at, last_updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                text = excluded.text,
+                author_id = excluded.author_id,
+                author_username = excluded.author_username,
+                author_display_name = excluded.author_display_name,
+                created_at = excluded.created_at,
+                conversation_id = excluded.conversation_id,
+                reply_count = excluded.reply_count,
+                retweet_count = excluded.retweet_count,
+                like_count = excluded.like_count,
+                quote_count = excluded.quote_count,
+                last_updated_at = excluded.last_updated_at
             """,
             (
                 tweet_data["id"],
@@ -140,38 +153,6 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
                 tweet_data.get("quote_count", 0),
                 now,
                 now,
-            ),
-        )
-
-        conn.execute(
-            """
-            UPDATE tweets SET
-                text = ?,
-                author_id = ?,
-                author_username = ?,
-                author_display_name = ?,
-                created_at = ?,
-                conversation_id = ?,
-                reply_count = ?,
-                retweet_count = ?,
-                like_count = ?,
-                quote_count = ?,
-                last_updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                tweet_data["text"],
-                tweet_data["author_id"],
-                tweet_data["author_username"],
-                tweet_data.get("author_display_name"),
-                tweet_data["created_at"],
-                tweet_data.get("conversation_id"),
-                tweet_data.get("reply_count", 0),
-                tweet_data.get("retweet_count", 0),
-                tweet_data.get("like_count", 0),
-                tweet_data.get("quote_count", 0),
-                now,
-                tweet_data["id"],
             ),
         )
 
