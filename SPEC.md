@@ -24,7 +24,7 @@ TweetHoarder is a Python CLI tool for archiving a user's Twitter/X data (likes, 
 | Rate Limiting | Exponential backoff |
 | Query ID Refresh | Auto on 404 + manual `refresh-ids` command |
 | Output Style | Progress bar + key events |
-| Data Location | XDG-compliant (`~/.config/tweethoarder`, `~/.local/share/tweethoarder`) |
+| Data Location | XDG-compliant (`~/.config/tweethoarder`, `~/.local/share/tweethoarder`) - directories created on first run |
 | Deleted Content | Keep forever (never remove from local DB) |
 | HTTP Client | httpx (async support) |
 | Testing | Unit tests with mocks + integration tests with VCR.py |
@@ -201,10 +201,10 @@ CREATE INDEX idx_collections_added ON collections(added_at);
 
 ```bash
 # Sync commands (explicit subcommands)
-tweethoarder sync likes [--count N] [--all]
-tweethoarder sync bookmarks [--folder NAME]
-tweethoarder sync tweets [--count N] [--all]
-tweethoarder sync reposts [--count N] [--all]
+tweethoarder sync likes [--count N] [--all] [--resume]
+tweethoarder sync bookmarks [--folder NAME] [--resume]
+tweethoarder sync tweets [--count N] [--all] [--resume]
+tweethoarder sync reposts [--count N] [--all] [--resume]
 
 # Thread fetching (on-demand)
 tweethoarder thread <tweet_id> [--depth N]   # Fetch thread context for a tweet
@@ -264,10 +264,14 @@ $ tweethoarder stats
 
 ### Cookie Resolution Priority
 
-1. Environment variables: `TWITTER_AUTH_TOKEN`, `TWITTER_CT0`
+1. Environment variables: `TWITTER_AUTH_TOKEN`, `TWITTER_CT0`, `TWITTER_TWID`
 2. Config file: `~/.config/tweethoarder/config.toml`
-3. Auto-extract from Firefox (`~/.mozilla/firefox/*/cookies.sqlite`)
+3. Auto-extract from Firefox:
+   - Standard: `~/.mozilla/firefox/*/cookies.sqlite`
+   - Snap: `~/snap/firefox/common/.mozilla/firefox/*/cookies.sqlite`
 4. Auto-extract from Chrome (`~/.config/google-chrome/*/Cookies`) with keyring decryption
+
+**Cookies extracted:** `auth_token`, `ct0`, `twid`
 
 ### Cookie Extraction
 
@@ -275,11 +279,11 @@ $ tweethoarder stats
 # Firefox: Read directly from SQLite (unencrypted)
 # Chrome: Use secretstorage to decrypt via GNOME Keyring or KDE Wallet
 
-def extract_firefox_cookies(profile_path: Path) -> dict[str, str]:
-    """Extract auth_token and ct0 from Firefox cookies.sqlite"""
+def extract_firefox_cookies(db_path: Path) -> dict[str, str]:
+    """Extract auth_token, ct0, and twid from Firefox cookies.sqlite"""
 
-def extract_chrome_cookies(profile_path: Path) -> dict[str, str]:
-    """Extract and decrypt auth_token and ct0 from Chrome Cookies DB"""
+def extract_chrome_cookies(db_path: Path) -> dict[str, str]:
+    """Extract and decrypt auth_token, ct0, and twid from Chrome Cookies DB"""
 ```
 
 ---
@@ -292,24 +296,45 @@ The query ID system handles Twitter's rotating GraphQL operation IDs:
 
 1. **Baseline IDs**: Ship with known-working query IDs in `constants.py`
 2. **Runtime Cache**: Store discovered IDs in `~/.config/tweethoarder/query-ids-cache.json`
-3. **Auto-refresh**: On HTTP 404, scrape Twitter's JS bundles to find new IDs
+3. **Auto-refresh**: On HTTP 404, scrape Twitter's JS bundles to find new IDs (retry once, then fail)
 4. **TTL**: Cache valid for 24 hours
 
 ### Bundle Scraping
+
+Bundle scraping uses **unauthenticated requests** to fetch Twitter's public pages and JS bundles.
 
 ```python
 DISCOVERY_PAGES = [
     "https://x.com/?lang=en",
     "https://x.com/explore",
     "https://x.com/notifications",
+    "https://x.com/settings/profile",
 ]
 
-BUNDLE_URL_REGEX = r"https://abs\.twimg\.com/responsive-web/client-web(?:-legacy)?/[\w.-]+\.js"
+BUNDLE_URL_PATTERN = r"https://abs\.twimg\.com/responsive-web/client-web(?:-legacy)?/[A-Za-z0-9.-]+\.js"
 
+QUERY_ID_PATTERN = r"^[a-zA-Z0-9_-]+$"  # Validate extracted IDs
+
+# Multiple regex patterns to handle different bundle formats
 OPERATION_PATTERNS = [
-    r'queryId\s*:\s*["\']([^"\']+)["\']\s*,\s*operationName\s*:\s*["\']([^"\']+)["\']',
-    # ... additional patterns from bird
+    r'e\.exports=\{queryId\s*:\s*["\']([^"\']+)["\']\s*,\s*operationName\s*:\s*["\']([^"\']+)["\']',
+    r'e\.exports=\{operationName\s*:\s*["\']([^"\']+)["\']\s*,\s*queryId\s*:\s*["\']([^"\']+)["\']',
+    r'operationName\s*[:=]\s*["\']([^"\']+)["\'](.{0,4000}?)queryId\s*[:=]\s*["\']([^"\']+)["\']',
+    r'queryId\s*[:=]\s*["\']([^"\']+)["\'](.{0,4000}?)operationName\s*[:=]\s*["\']([^"\']+)["\']',
 ]
+```
+
+### Refresh Implementation
+
+```python
+async def refresh_query_ids(client: httpx.AsyncClient) -> dict[str, str]:
+    """Scrape Twitter bundles for fresh query IDs.
+
+    1. Fetch discovery pages (unauthenticated)
+    2. Extract bundle URLs from HTML
+    3. Download and parse each bundle
+    4. Save discovered IDs to cache file
+    """
 ```
 
 ---
@@ -398,6 +423,13 @@ verbose = false
 ---
 
 ## Export Formats
+
+### Export Defaults
+
+- **Default output directory:** `~/.local/share/tweethoarder/exports/`
+- **Filename pattern:** `{collection}_{timestamp}.{format}` (e.g., `likes_2025-01-02T103000.json`)
+- **`--output` flag:** Overrides default path with custom location
+- **Overwrite behavior:** Prompt before overwriting existing files
 
 ### JSON Export
 
@@ -493,47 +525,49 @@ async def test_fetch_likes():
 
 ## Implementation Phases
 
-### Phase 1: Core Infrastructure
-1. Project setup (pyproject.toml, directory structure)
-2. Configuration management
-3. SQLite database setup
-4. Basic Typer CLI skeleton
+### Phase 1: Core Infrastructure ✅
+1. ✅ Project setup (pyproject.toml, directory structure)
+2. ✅ Configuration management
+3. ✅ SQLite database setup
+4. ✅ Basic Typer CLI skeleton
 
-### Phase 2: Authentication
-1. Firefox cookie extraction
-2. Chrome cookie extraction with keyring
-3. Cookie resolution flow
-4. Manual cookie fallback
+### Phase 2: Authentication 🟡
+1. ✅ Firefox cookie extraction (including snap path)
+2. ⏳ Chrome cookie extraction with keyring
+3. ✅ Cookie resolution flow
+4. ✅ Manual cookie fallback (env vars, config file)
 
-### Phase 3: Twitter Client
-1. Base HTTP client with headers
-2. Query ID management (baseline + cache)
-3. Query ID refresh from bundles
-4. Rate limiting with exponential backoff
+### Phase 3: Twitter Client 🟡
+1. ✅ Base HTTP client with headers
+2. ✅ Query ID management (baseline + cache)
+3. ⏳ Query ID refresh from bundles (scraper patterns exist, refresh not wired up)
+4. ✅ Rate limiting with exponential backoff
 
-### Phase 4: Sync Commands
-1. Likes sync with pagination
-2. Bookmarks sync (including folders)
-3. User tweets sync
-4. Reposts sync
-5. Checkpointing for all syncs
+### Phase 4: Sync Commands 🟡
+1. ✅ Likes sync with pagination
+2. ⏳ Bookmarks sync (including folders)
+3. ⏳ User tweets sync
+4. ⏳ Reposts sync
+5. ✅ Checkpointing infrastructure (not yet integrated into sync commands)
 
-### Phase 5: Additional Features
-1. Thread fetching (on-demand)
-2. Quoted tweet resolution
-3. Stats command
-4. Progress display (rich)
+### Phase 5: Additional Features 🟡
+1. ⏳ Thread fetching (on-demand)
+2. ⏳ Quoted tweet resolution
+3. ✅ Stats command
+4. ⏳ Progress display (rich imported but not used)
 
-### Phase 6: Export
-1. JSON export
-2. Markdown export
-3. HTML single-file viewer
+### Phase 6: Export 🟡
+1. 🟡 JSON export (formatting done, CLI stub)
+2. ⏳ Markdown export
+3. ⏳ HTML single-file viewer
 
-### Phase 7: Testing & Polish
-1. Unit tests with mocks
-2. Integration tests with VCR.py
-3. Error handling edge cases
-4. Documentation
+### Phase 7: Testing & Polish 🟡
+1. ✅ Unit tests with mocks
+2. ⏳ Integration tests with VCR.py
+3. ⏳ Error handling edge cases
+4. ⏳ Documentation
+
+**Legend:** ✅ Complete | 🟡 Partial | ⏳ Pending
 
 ---
 
