@@ -48,6 +48,18 @@ class QueryIdStore:
         """Clear in-memory cache, forcing reload from disk on next access."""
         pass
 
+    def save(self, ids: dict[str, str]) -> None:
+        """Save query IDs to cache file."""
+        from .constants import DEFAULT_TTL_SECONDS
+
+        data = {
+            "fetched_at": datetime.now(UTC).isoformat(),
+            "ttl_seconds": DEFAULT_TTL_SECONDS,
+            "ids": ids,
+        }
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cache_path.write_text(json.dumps(data))
+
 
 def get_query_id_with_fallback(store: QueryIdStore, operation: str) -> str:
     """Get query ID from cache, falling back to FALLBACK_QUERY_IDS."""

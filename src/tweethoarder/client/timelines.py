@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
@@ -48,6 +49,7 @@ async def fetch_likes_page(
     cursor: str | None = None,
     max_retries: int = 5,
     base_delay: float = 1.0,
+    on_query_id_refresh: Callable[[], Awaitable[str]] | None = None,
 ) -> dict[str, Any]:
     """Fetch a page of likes from the Twitter API with retry on rate limit.
 
@@ -58,6 +60,7 @@ async def fetch_likes_page(
         cursor: Optional pagination cursor for fetching subsequent pages.
         max_retries: Maximum number of retry attempts on rate limit.
         base_delay: Base delay in seconds for exponential backoff.
+        on_query_id_refresh: Optional async callback to refresh query ID on 404.
 
     Returns:
         The parsed JSON response from the API.
@@ -65,10 +68,18 @@ async def fetch_likes_page(
     Raises:
         httpx.HTTPStatusError: If the API request fails after all retries.
     """
-    url = build_likes_url(query_id, user_id, cursor)
+    current_query_id = query_id
+    url = build_likes_url(current_query_id, user_id, cursor)
+    refreshed = False
 
     for attempt in range(max_retries):
         response = await client.get(url)
+
+        if response.status_code == 404 and on_query_id_refresh and not refreshed:
+            current_query_id = await on_query_id_refresh()
+            url = build_likes_url(current_query_id, user_id, cursor)
+            refreshed = True
+            continue
 
         if response.status_code == 429:
             if attempt < max_retries - 1:

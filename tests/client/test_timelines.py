@@ -310,3 +310,40 @@ async def test_fetch_likes_page_raises_after_max_retries_exhausted() -> None:
         )
 
     assert mock_client.get.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_fetch_likes_page_calls_refresh_callback_on_404() -> None:
+    """fetch_likes_page should call on_query_id_refresh callback on 404."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    import httpx
+
+    from tweethoarder.client.timelines import fetch_likes_page
+
+    not_found_response = MagicMock()
+    not_found_response.status_code = 404
+    not_found_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Not found", request=MagicMock(), response=not_found_response
+    )
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"user": {"result": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [not_found_response, success_response]
+
+    refresh_callback = AsyncMock(return_value="NEW_QUERY_ID")
+
+    result = await fetch_likes_page(
+        client=mock_client,
+        query_id="OLD_QUERY_ID",
+        user_id="12345",
+        on_query_id_refresh=refresh_callback,
+    )
+
+    refresh_callback.assert_called_once()
+    assert mock_client.get.call_count == 2
+    assert "data" in result
