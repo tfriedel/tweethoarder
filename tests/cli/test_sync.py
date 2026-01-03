@@ -48,3 +48,17 @@ def test_sync_likes_accepts_all_flag() -> None:
     result = runner.invoke(app, ["sync", "likes", "--help"])
     assert result.exit_code == 0
     assert "--all" in strip_ansi(result.output)
+
+
+def test_sync_bookmarks_accepts_count_option() -> None:
+    """The sync bookmarks command should accept a --count option."""
+    result = runner.invoke(app, ["sync", "bookmarks", "--help"])
+    assert result.exit_code == 0
+    assert "--count" in strip_ansi(result.output)
+
+
+def test_sync_bookmarks_accepts_all_flag() -> None:
+    """The sync bookmarks command should accept an --all flag for unlimited sync."""
+    result = runner.invoke(app, ["sync", "bookmarks", "--help"])
+    assert result.exit_code == 0
+    assert "--all" in strip_ansi(result.output)

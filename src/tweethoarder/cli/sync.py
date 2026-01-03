@@ -128,7 +128,10 @@ def likes(
 
 
 @app.command()
-def bookmarks() -> None:
+def bookmarks(
+    count: int = typer.Option(100, "--count", "-c", help="Number of bookmarks to sync."),
+    all_bookmarks: bool = typer.Option(False, "--all", help="Sync all bookmarks (ignore count)."),
+) -> None:
     """Sync bookmarked tweets to local storage."""
 
 

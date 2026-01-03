@@ -279,6 +279,7 @@ Each agent works independently with:
 ### Git Practices
 
 - **NEVER push directly to main** - always use feature branches and PRs
+- **Always create a branch/PR when starting a new issue** - before writing any code for a new issue, create a feature branch (e.g., `feat/issue-name` or `fix/issue-name`)
 - **Always work in a worktree** for new features (use `wt switch -c`)
 - Follow Conventional Commits: `feat:`, `fix:`, `docs:`, `chore:`, etc.
 - Use lowercase after prefix: `feat: add feature` not `feat: Add feature`

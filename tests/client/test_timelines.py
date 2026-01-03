@@ -3,6 +3,86 @@
 import pytest
 
 
+def test_build_bookmarks_url_includes_query_id() -> None:
+    """build_bookmarks_url should include the Bookmarks query ID in the path."""
+    from tweethoarder.client.timelines import build_bookmarks_url
+
+    url = build_bookmarks_url(query_id="BOOK123")
+
+    assert "BOOK123" in url
+    assert "/graphql/" in url
+
+
+def test_build_bookmarks_url_includes_features() -> None:
+    """build_bookmarks_url should include features query param."""
+    from tweethoarder.client.timelines import build_bookmarks_url
+
+    url = build_bookmarks_url(query_id="BOOK123")
+
+    assert "features" in url
+
+
+def test_build_bookmarks_url_includes_variables() -> None:
+    """build_bookmarks_url should include variables query param."""
+    from tweethoarder.client.timelines import build_bookmarks_url
+
+    url = build_bookmarks_url(query_id="BOOK123")
+
+    assert "variables" in url
+
+
+def test_build_bookmarks_url_includes_cursor_when_provided() -> None:
+    """build_bookmarks_url should include cursor for pagination when provided."""
+    from tweethoarder.client.timelines import build_bookmarks_url
+
+    url = build_bookmarks_url(query_id="BOOK123", cursor="cursor_xyz")
+
+    assert "cursor_xyz" in url
+
+
+def test_fetch_bookmarks_page_exists() -> None:
+    """fetch_bookmarks_page function should be importable."""
+    from tweethoarder.client.timelines import fetch_bookmarks_page
+
+    assert callable(fetch_bookmarks_page)
+
+
+def test_fetch_bookmarks_page_accepts_required_params() -> None:
+    """fetch_bookmarks_page should accept client and query_id parameters."""
+    import inspect
+
+    from tweethoarder.client.timelines import fetch_bookmarks_page
+
+    sig = inspect.signature(fetch_bookmarks_page)
+    params = list(sig.parameters.keys())
+
+    assert "client" in params
+    assert "query_id" in params
+
+
+@pytest.mark.asyncio
+async def test_fetch_bookmarks_page_returns_dict() -> None:
+    """fetch_bookmarks_page should return parsed JSON response."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_bookmarks_page
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"data": {"bookmark_timeline_v2": {}}}
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_response
+
+    result = await fetch_bookmarks_page(
+        client=mock_client,
+        query_id="BOOK123",
+    )
+
+    assert isinstance(result, dict)
+    assert "data" in result
+
+
 def test_build_likes_url_includes_query_id() -> None:
     """build_likes_url should include the Likes query ID in the path."""
     from tweethoarder.client.timelines import build_likes_url

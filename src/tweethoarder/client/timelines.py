@@ -9,13 +9,31 @@ from urllib.parse import urlencode
 
 import httpx
 
-from tweethoarder.client.features import build_likes_features
+from tweethoarder.client.features import build_bookmarks_features, build_likes_features
 from tweethoarder.query_ids.constants import TWITTER_API_BASE
 
 if TYPE_CHECKING:
     pass
 
 TWITTER_DATE_FORMAT = "%a %b %d %H:%M:%S %z %Y"
+
+
+def build_bookmarks_url(query_id: str, cursor: str | None = None) -> str:
+    """Build URL for fetching bookmarks from Twitter GraphQL API."""
+    variables: dict[str, str | int | bool] = {
+        "count": 20,
+        "includePromotedContent": False,
+    }
+    if cursor:
+        variables["cursor"] = cursor
+    features = build_bookmarks_features()
+    params = urlencode(
+        {
+            "variables": json.dumps(variables),
+            "features": json.dumps(features),
+        }
+    )
+    return f"{TWITTER_API_BASE}/{query_id}/Bookmarks?{params}"
 
 
 def build_likes_url(query_id: str, user_id: str, cursor: str | None = None) -> str:
@@ -47,6 +65,18 @@ def build_likes_url(query_id: str, user_id: str, cursor: str | None = None) -> s
         }
     )
     return f"{TWITTER_API_BASE}/{query_id}/Likes?{params}"
+
+
+async def fetch_bookmarks_page(
+    client: httpx.AsyncClient,
+    query_id: str,
+) -> dict[str, Any]:
+    """Fetch a page of bookmarks from the Twitter API."""
+    url = build_bookmarks_url(query_id)
+    response = await client.get(url)
+    response.raise_for_status()
+    result: dict[str, Any] = response.json()
+    return result
 
 
 async def fetch_likes_page(
