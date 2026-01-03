@@ -1,8 +1,12 @@
 """Shared test fixtures and utilities."""
 
+import os
 from typing import Any
 
 import pytest
+
+# Disable Rich color output for consistent test output across environments
+os.environ["NO_COLOR"] = "1"
 
 
 def _make_tweet(
