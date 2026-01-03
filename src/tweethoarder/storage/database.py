@@ -2,6 +2,7 @@
 
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 TWEETS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS tweets (
@@ -88,13 +89,98 @@ INDEXES = [
 
 def init_database(db_path: Path) -> None:
     """Initialize the SQLite database."""
-    conn = sqlite3.connect(db_path)
-    conn.execute(TWEETS_SCHEMA)
-    conn.execute(COLLECTIONS_SCHEMA)
-    conn.execute(SYNC_PROGRESS_SCHEMA)
-    conn.execute(THREAD_CONTEXT_SCHEMA)
-    conn.execute(METADATA_SCHEMA)
-    for index_sql in INDEXES:
-        conn.execute(index_sql)
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(TWEETS_SCHEMA)
+        conn.execute(COLLECTIONS_SCHEMA)
+        conn.execute(SYNC_PROGRESS_SCHEMA)
+        conn.execute(THREAD_CONTEXT_SCHEMA)
+        conn.execute(METADATA_SCHEMA)
+        for index_sql in INDEXES:
+            conn.execute(index_sql)
+        conn.commit()
+
+
+def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
+    """Save a tweet to the database.
+
+    Inserts a new tweet or updates an existing one while preserving
+    the original first_seen_at timestamp. Uses a single UPSERT operation
+    for efficiency.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        tweet_data: Dictionary containing tweet data with keys:
+            id, text, author_id, author_username, created_at (required),
+            and optional keys like author_display_name, conversation_id,
+            reply_count, retweet_count, like_count, quote_count.
+    """
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO tweets (
+                id, text, author_id, author_username, author_display_name,
+                created_at, conversation_id, reply_count, retweet_count,
+                like_count, quote_count, first_seen_at, last_updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                text = excluded.text,
+                author_id = excluded.author_id,
+                author_username = excluded.author_username,
+                author_display_name = excluded.author_display_name,
+                created_at = excluded.created_at,
+                conversation_id = excluded.conversation_id,
+                reply_count = excluded.reply_count,
+                retweet_count = excluded.retweet_count,
+                like_count = excluded.like_count,
+                quote_count = excluded.quote_count,
+                last_updated_at = excluded.last_updated_at
+            """,
+            (
+                tweet_data["id"],
+                tweet_data["text"],
+                tweet_data["author_id"],
+                tweet_data["author_username"],
+                tweet_data.get("author_display_name"),
+                tweet_data["created_at"],
+                tweet_data.get("conversation_id"),
+                tweet_data.get("reply_count", 0),
+                tweet_data.get("retweet_count", 0),
+                tweet_data.get("like_count", 0),
+                tweet_data.get("quote_count", 0),
+                now,
+                now,
+            ),
+        )
+
+        conn.commit()
+
+
+def add_to_collection(db_path: Path, tweet_id: str, collection_type: str) -> None:
+    """Add a tweet to a collection.
+
+    Records that a tweet belongs to a specific collection (like, bookmark, etc.).
+    Does nothing if the tweet is already in the collection.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        tweet_id: The ID of the tweet to add.
+        collection_type: The type of collection (e.g., "like", "bookmark").
+    """
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat()
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO collections (
+                tweet_id, collection_type, added_at, synced_at
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (tweet_id, collection_type, now, now),
+        )
+        conn.commit()

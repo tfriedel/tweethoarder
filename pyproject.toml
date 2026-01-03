@@ -136,3 +136,5 @@ exclude_lines = [
 ]
 
 [tool.deptry]
+# These dependencies are planned for upcoming features
+per_rule_ignores = { "DEP002" = ["loguru", "pydantic", "rich", "secretstorage"] }

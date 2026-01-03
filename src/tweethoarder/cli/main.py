@@ -2,7 +2,8 @@
 
 import typer
 
-from tweethoarder.cli import export, stats as stats_module, sync
+from tweethoarder.cli import export, sync
+from tweethoarder.cli import stats as stats_module
 
 app = typer.Typer(
     name="tweethoarder",

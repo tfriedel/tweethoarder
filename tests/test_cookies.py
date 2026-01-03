@@ -96,3 +96,68 @@ def test_resolve_cookies_raises_when_no_cookies_found(
 
     with pytest.raises(CookieError, match="No Twitter cookies found"):
         resolve_cookies(home_dir=tmp_path)
+
+
+def test_resolve_cookies_includes_twid_from_firefox(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    """Should include twid cookie when available from Firefox."""
+    from tweethoarder.auth.cookies import resolve_cookies
+
+    monkeypatch.delenv("TWITTER_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("TWITTER_CT0", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty_config"))
+
+    firefox_dir = tmp_path / ".mozilla" / "firefox" / "test_profile"
+    firefox_dir.mkdir(parents=True)
+    _create_firefox_cookies_db(
+        firefox_dir / "cookies.sqlite",
+        [
+            ("auth_token", "firefox_auth_token"),
+            ("ct0", "firefox_ct0"),
+            ("twid", "u%3D12345"),
+        ],
+    )
+
+    cookies = resolve_cookies(home_dir=tmp_path)
+
+    assert cookies["twid"] == "u%3D12345"
+
+
+def test_resolve_cookies_includes_twid_from_env_vars(monkeypatch: MonkeyPatch) -> None:
+    """Should include twid cookie when available from environment variables."""
+    from tweethoarder.auth.cookies import resolve_cookies
+
+    monkeypatch.setenv("TWITTER_AUTH_TOKEN", "env_auth_token")
+    monkeypatch.setenv("TWITTER_CT0", "env_ct0")
+    monkeypatch.setenv("TWITTER_TWID", "u%3D67890")
+
+    cookies = resolve_cookies()
+
+    assert cookies["twid"] == "u%3D67890"
+
+
+def test_resolve_cookies_includes_twid_from_config_file(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    """Should include twid cookie when available from config file."""
+    from tweethoarder.auth.cookies import resolve_cookies
+
+    monkeypatch.delenv("TWITTER_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("TWITTER_CT0", raising=False)
+    monkeypatch.delenv("TWITTER_TWID", raising=False)
+
+    config_dir = tmp_path / "tweethoarder"
+    config_dir.mkdir(parents=True)
+    config_file = config_dir / "config.toml"
+    config_file.write_text("""
+[auth]
+auth_token = "config_auth_token"
+ct0 = "config_ct0"
+twid = "u%3D11111"
+""")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    cookies = resolve_cookies()
+
+    assert cookies["twid"] == "u%3D11111"

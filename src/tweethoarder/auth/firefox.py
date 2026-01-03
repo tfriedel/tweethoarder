@@ -5,11 +5,12 @@ from pathlib import Path
 
 
 def extract_firefox_cookies(db_path: Path) -> dict[str, str]:
-    """Extract auth_token and ct0 cookies from Firefox cookies.sqlite."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.execute("SELECT name, value FROM moz_cookies WHERE name IN ('auth_token', 'ct0')")
-    cookies = {row[0]: row[1] for row in cursor.fetchall()}
-    conn.close()
+    """Extract auth_token, ct0, and twid cookies from Firefox cookies.sqlite."""
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT name, value FROM moz_cookies WHERE name IN ('auth_token', 'ct0', 'twid')"
+        )
+        cookies = {row[0]: row[1] for row in cursor.fetchall()}
     return cookies
 
 

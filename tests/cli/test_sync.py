@@ -33,3 +33,17 @@ def test_sync_reposts_command_exists() -> None:
     result = runner.invoke(app, ["sync", "reposts", "--help"])
     assert result.exit_code == 0
     assert "reposts" in result.output.lower()
+
+
+def test_sync_likes_accepts_count_option() -> None:
+    """The sync likes command should accept a --count option."""
+    result = runner.invoke(app, ["sync", "likes", "--help"])
+    assert result.exit_code == 0
+    assert "--count" in result.output
+
+
+def test_sync_likes_accepts_all_flag() -> None:
+    """The sync likes command should accept an --all flag for unlimited sync."""
+    result = runner.invoke(app, ["sync", "likes", "--help"])
+    assert result.exit_code == 0
+    assert "--all" in result.output
