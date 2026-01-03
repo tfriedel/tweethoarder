@@ -165,6 +165,8 @@ def test_reposts_command_accepts_count_option() -> None:
 
 def test_reposts_command_accepts_all_flag() -> None:
     """Reposts command should accept an --all flag."""
+    import re
+
     from typer.testing import CliRunner
 
     from tweethoarder.cli.sync import app
@@ -172,7 +174,9 @@ def test_reposts_command_accepts_all_flag() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["reposts", "--help"])
 
-    assert "--all" in result.output
+    # Strip ANSI escape codes for reliable matching
+    clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--all" in clean_output
 
 
 def test_reposts_command_calls_sync_reposts_async() -> None:

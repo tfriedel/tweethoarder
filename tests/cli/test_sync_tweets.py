@@ -242,6 +242,8 @@ def test_tweets_command_accepts_count_option() -> None:
 
 def test_tweets_command_accepts_all_flag() -> None:
     """Tweets command should accept an --all flag."""
+    import re
+
     from typer.testing import CliRunner
 
     from tweethoarder.cli.sync import app
@@ -249,7 +251,9 @@ def test_tweets_command_accepts_all_flag() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["tweets", "--help"])
 
-    assert "--all" in result.output
+    # Strip ANSI escape codes for reliable matching
+    clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--all" in clean_output
 
 
 def test_tweets_command_calls_sync_tweets_async() -> None:

@@ -40,10 +40,12 @@ CREATE TABLE IF NOT EXISTS collections (
     collection_type TEXT NOT NULL,
     bookmark_folder_id TEXT,
     bookmark_folder_name TEXT,
+    thread_id TEXT,
     added_at TEXT NOT NULL,
     synced_at TEXT NOT NULL,
     PRIMARY KEY (tweet_id, collection_type),
-    FOREIGN KEY (tweet_id) REFERENCES tweets(id)
+    FOREIGN KEY (tweet_id) REFERENCES tweets(id),
+    FOREIGN KEY (thread_id) REFERENCES threads(id)
 )
 """
 
@@ -78,12 +80,30 @@ CREATE TABLE IF NOT EXISTS metadata (
 )
 """
 
+THREADS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS threads (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    root_tweet_id TEXT NOT NULL,
+    focal_tweet_id TEXT,
+    author_id TEXT NOT NULL,
+    thread_type TEXT NOT NULL,
+    tweet_count INTEGER NOT NULL,
+    is_complete BOOLEAN DEFAULT FALSE,
+    fetched_at TEXT NOT NULL,
+    FOREIGN KEY (root_tweet_id) REFERENCES tweets(id),
+    FOREIGN KEY (focal_tweet_id) REFERENCES tweets(id)
+)
+"""
+
 INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_tweets_author ON tweets(author_id)",
     "CREATE INDEX IF NOT EXISTS idx_tweets_conversation ON tweets(conversation_id)",
     "CREATE INDEX IF NOT EXISTS idx_tweets_created_at ON tweets(created_at)",
     "CREATE INDEX IF NOT EXISTS idx_collections_type ON collections(collection_type)",
     "CREATE INDEX IF NOT EXISTS idx_collections_added ON collections(added_at)",
+    "CREATE INDEX IF NOT EXISTS idx_threads_conversation ON threads(conversation_id)",
+    "CREATE INDEX IF NOT EXISTS idx_threads_focal ON threads(focal_tweet_id)",
 ]
 
 
@@ -95,6 +115,7 @@ def init_database(db_path: Path) -> None:
         conn.execute(SYNC_PROGRESS_SCHEMA)
         conn.execute(THREAD_CONTEXT_SCHEMA)
         conn.execute(METADATA_SCHEMA)
+        conn.execute(THREADS_SCHEMA)
         for index_sql in INDEXES:
             conn.execute(index_sql)
         conn.commit()
