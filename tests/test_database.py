@@ -233,6 +233,46 @@ def test_save_tweet_uses_single_upsert_operation(tmp_path: Path) -> None:
     assert first_save[0] == first_save[1]
 
 
+def test_get_all_tweets_returns_all_tweets(tmp_path: Path) -> None:
+    """get_all_tweets should return all tweets regardless of collection."""
+    from tweethoarder.storage.database import (
+        add_to_collection,
+        get_all_tweets,
+        init_database,
+        save_tweet,
+    )
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "1",
+            "text": "Tweet 1",
+            "author_id": "100",
+            "author_username": "user1",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    save_tweet(
+        db_path,
+        {
+            "id": "2",
+            "text": "Tweet 2",
+            "author_id": "100",
+            "author_username": "user1",
+            "created_at": "2025-01-02T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "1", "like")
+    add_to_collection(db_path, "2", "bookmark")
+
+    tweets = get_all_tweets(db_path)
+
+    assert len(tweets) == 2
+
+
 def test_get_tweets_by_collection_returns_tweets(tmp_path: Path) -> None:
     """get_tweets_by_collection should return tweets in a specific collection."""
     from tweethoarder.storage.database import (

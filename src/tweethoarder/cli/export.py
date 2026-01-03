@@ -27,6 +27,26 @@ def json(
     """Export tweets to JSON format."""
 
 
+def _get_default_export_path(data_dir: Path, collection: str | None, fmt: str) -> Path:
+    """Generate default export path with timestamp."""
+    from datetime import UTC, datetime
+
+    exports_dir = data_dir / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    filename = f"{collection or 'all'}_{timestamp}.{fmt}"
+    return exports_dir / filename
+
+
+# Map from CLI plural names to database singular names
+COLLECTION_MAP = {
+    "likes": "like",
+    "bookmarks": "bookmark",
+    "tweets": "tweet",
+    "reposts": "repost",
+}
+
+
 @app.command()
 def markdown(
     collection: str | None = typer.Option(
@@ -43,14 +63,17 @@ def markdown(
     """Export tweets to Markdown format."""
     from tweethoarder.config import get_data_dir
     from tweethoarder.export.markdown_export import export_tweets_to_markdown
-    from tweethoarder.storage.database import get_tweets_by_collection
+    from tweethoarder.storage.database import get_all_tweets, get_tweets_by_collection
 
-    db_path = get_data_dir() / "tweethoarder.db"
-    collection_type = collection.rstrip("s") if collection else None
+    data_dir = get_data_dir()
+    db_path = data_dir / "tweethoarder.db"
+    collection_type = COLLECTION_MAP.get(collection, collection) if collection else None
     tweets: list[dict[str, Any]] = (
-        get_tweets_by_collection(db_path, collection_type) if collection_type else []
+        get_tweets_by_collection(db_path, collection_type)
+        if collection_type
+        else get_all_tweets(db_path)
     )
     content = export_tweets_to_markdown(tweets, collection=collection)
 
-    if output:
-        output.write_text(content)
+    output_path = output or _get_default_export_path(data_dir, collection, "md")
+    output_path.write_text(content)

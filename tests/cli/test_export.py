@@ -85,3 +85,36 @@ def test_export_markdown_writes_file(tmp_path: Path, monkeypatch: object) -> Non
     content = output_path.read_text()
     assert "# Liked Tweets" in content
     assert "@testuser" in content
+
+
+def test_export_markdown_uses_default_output_path(tmp_path: Path, monkeypatch: object) -> None:
+    """Export markdown command should write to default path when --output not specified."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    result = runner.invoke(app, ["export", "markdown", "--collection", "likes"])
+
+    assert result.exit_code == 0
+    # Check that file was created in exports directory
+    exports_dir = tmp_path / "tweethoarder" / "exports"
+    assert exports_dir.exists()
+    md_files = list(exports_dir.glob("likes_*.md"))
+    assert len(md_files) == 1
+    content = md_files[0].read_text()
+    assert "# Liked Tweets" in content
+
+
+def test_export_markdown_exports_all_tweets_when_no_collection(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    """Export markdown without --collection should export all tweets."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "all.md"
+    result = runner.invoke(app, ["export", "markdown", "--output", str(output_path)])
+
+    assert result.exit_code == 0
+    content = output_path.read_text()
+    assert "@testuser" in content
+    assert "Test tweet" in content
