@@ -166,3 +166,51 @@ def test_export_csv_writes_file(tmp_path: Path, monkeypatch: object) -> None:
     content = output_path.read_text()
     assert "id" in content
     assert "testuser" in content
+
+
+def test_export_html_command_exists() -> None:
+    """Export html subcommand should be available."""
+    result = runner.invoke(app, ["export", "html", "--help"])
+    assert result.exit_code == 0
+    assert "Export tweets to HTML format" in result.output
+
+
+def test_export_html_writes_file(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html command should write self-contained HTML file."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    result = runner.invoke(
+        app, ["export", "html", "--collection", "likes", "--output", str(output_path)]
+    )
+
+    assert result.exit_code == 0
+    assert output_path.exists()
+    content = output_path.read_text()
+    assert "<!DOCTYPE html>" in content
+    assert "testuser" in content
+
+
+def test_export_html_has_inline_css(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should include inline CSS for offline viewing."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "<style>" in content
+
+
+def test_export_html_has_embedded_data(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should embed tweet data as JSON for search functionality."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "<script>" in content
