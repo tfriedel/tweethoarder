@@ -22,6 +22,15 @@ def stats() -> None:
     stats_module.show_stats()
 
 
+@app.command()
+def thread(
+    tweet_id: str = typer.Argument(..., help="Tweet ID to fetch thread context for."),
+    depth: int = typer.Option(5, "--depth", "-d", help="Maximum depth of thread to fetch."),
+) -> None:
+    """Fetch thread context for a tweet."""
+    pass
+
+
 @app.command(name="refresh-ids")
 def refresh_ids_command() -> None:
     """Refresh Twitter GraphQL query IDs."""
