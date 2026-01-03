@@ -293,3 +293,149 @@ async def test_sync_bookmarks_async_stops_pagination_when_count_reached(tmp_path
     # Should only fetch once since count was reached
     assert mock_client.get.call_count == 1
     assert result["synced_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_sync_bookmarks_async_clears_checkpoint_on_completion(tmp_path: Path) -> None:
+    """sync_bookmarks_async should clear checkpoint on successful completion."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_bookmarks_async
+    from tweethoarder.storage.checkpoint import SyncCheckpoint
+
+    db_path = tmp_path / "test.db"
+
+    # Page with cursor (should trigger checkpoint save)
+    page = _make_bookmarks_response([_make_bookmark_entry("1", "First")])
+    page["data"]["bookmark_timeline_v2"]["timeline"]["instructions"][0]["entries"].append(
+        {
+            "entryId": "cursor-bottom-123",
+            "content": {"value": "next_cursor"},
+        }
+    )
+    page2 = _make_bookmarks_response([])  # Empty second page to stop
+
+    mock_http_response_1 = MagicMock()
+    mock_http_response_1.json.return_value = page
+    mock_http_response_1.raise_for_status = MagicMock()
+
+    mock_http_response_2 = MagicMock()
+    mock_http_response_2.json.return_value = page2
+    mock_http_response_2.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t"}
+        with patch("tweethoarder.query_ids.store.QueryIdStore") as mock_store_cls:
+            mock_store = MagicMock()
+            mock_store.get.return_value = "BOOK123"
+            mock_store_cls.return_value = mock_store
+            with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+                mock_client = AsyncMock()
+                mock_client.get.side_effect = [mock_http_response_1, mock_http_response_2]
+                mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+                await sync_bookmarks_async(db_path=db_path, count=100)
+
+    # Checkpoint should be cleared on successful completion
+    checkpoint = SyncCheckpoint(db_path)
+    assert checkpoint.load("bookmark") is None
+
+
+@pytest.mark.asyncio
+async def test_sync_bookmarks_async_resumes_from_checkpoint(tmp_path: Path) -> None:
+    """sync_bookmarks_async should resume from a saved checkpoint."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_bookmarks_async
+    from tweethoarder.storage.checkpoint import SyncCheckpoint
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Save a checkpoint as if previous sync was interrupted
+    checkpoint = SyncCheckpoint(db_path)
+    checkpoint.save("bookmark", cursor="saved_cursor", last_tweet_id="100")
+
+    # This page should be returned when resuming with saved_cursor
+    page = _make_bookmarks_response([_make_bookmark_entry("200", "Resumed")])
+
+    mock_http_response = MagicMock()
+    mock_http_response.json.return_value = page
+    mock_http_response.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t"}
+        with patch("tweethoarder.query_ids.store.QueryIdStore") as mock_store_cls:
+            mock_store = MagicMock()
+            mock_store.get.return_value = "BOOK123"
+            mock_store_cls.return_value = mock_store
+            with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+                mock_client = AsyncMock()
+                mock_client.get.return_value = mock_http_response
+                mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+                result = await sync_bookmarks_async(db_path=db_path, count=100)
+
+    # Should have synced the resumed tweet
+    assert result["synced_count"] == 1
+
+    # Check that the API was called with the saved cursor
+    call_args = mock_client.get.call_args[0][0]
+    assert "saved_cursor" in call_args
+
+
+@pytest.mark.asyncio
+async def test_sync_bookmarks_async_saves_checkpoint_after_page(tmp_path: Path) -> None:
+    """sync_bookmarks_async should save checkpoint after each page with cursor."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    import httpx
+
+    from tweethoarder.cli.sync import sync_bookmarks_async
+    from tweethoarder.storage.checkpoint import SyncCheckpoint
+
+    db_path = tmp_path / "test.db"
+
+    # Page with cursor - sync will be interrupted after first page
+    page = _make_bookmarks_response([_make_bookmark_entry("1", "First")])
+    page["data"]["bookmark_timeline_v2"]["timeline"]["instructions"][0]["entries"].append(
+        {
+            "entryId": "cursor-bottom-123",
+            "content": {"value": "next_cursor"},
+        }
+    )
+
+    mock_http_response = MagicMock()
+    mock_http_response.json.return_value = page
+    mock_http_response.raise_for_status = MagicMock()
+
+    # Simulate error on second page (interruption)
+    error_response = MagicMock()
+    error_response.status_code = 500
+    error_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Server error", request=MagicMock(), response=error_response
+    )
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t"}
+        with patch("tweethoarder.query_ids.store.QueryIdStore") as mock_store_cls:
+            mock_store = MagicMock()
+            mock_store.get.return_value = "BOOK123"
+            mock_store_cls.return_value = mock_store
+            with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+                mock_client = AsyncMock()
+                mock_client.get.side_effect = [mock_http_response, error_response]
+                mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+                try:
+                    await sync_bookmarks_async(db_path=db_path, count=100)
+                except httpx.HTTPStatusError:
+                    pass  # Expected - sync was interrupted
+
+    # Checkpoint should be saved with the cursor from first page
+    checkpoint = SyncCheckpoint(db_path)
+    saved = checkpoint.load("bookmark")
+    assert saved is not None
+    assert saved.cursor == "next_cursor"
+    assert saved.last_tweet_id == "1"

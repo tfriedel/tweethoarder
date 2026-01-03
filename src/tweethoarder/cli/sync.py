@@ -149,7 +149,11 @@ async def sync_bookmarks_async(db_path: Path, count: float) -> dict[str, int]:
     headers = client.get_base_headers()
     synced_count = 0
 
-    cursor: str | None = None
+    # Load checkpoint for resume capability
+    checkpoint = SyncCheckpoint(db_path)
+    saved_checkpoint = checkpoint.load("bookmark")
+    cursor: str | None = saved_checkpoint.cursor if saved_checkpoint else None
+    last_tweet_id: str | None = None
 
     async with httpx.AsyncClient(headers=headers) as http_client:
         while synced_count < count:
@@ -166,11 +170,18 @@ async def sync_bookmarks_async(db_path: Path, count: float) -> dict[str, int]:
                 if tweet_data:
                     save_tweet(db_path, tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "bookmark")
+                    last_tweet_id = tweet_data["id"]
                     synced_count += 1
+
+            # Save checkpoint after each page for resume capability
+            if cursor and last_tweet_id:
+                checkpoint.save("bookmark", cursor=cursor, last_tweet_id=last_tweet_id)
 
             if not cursor:
                 break
 
+    # Clear checkpoint on successful completion
+    checkpoint.clear("bookmark")
     return {"synced_count": synced_count}
 
 
