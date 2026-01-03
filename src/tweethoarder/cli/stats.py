@@ -21,10 +21,9 @@ def get_total_tweet_count(db_path: Path) -> int:
     """Get the total number of tweets in the database."""
     if not db_path.exists():
         return 0
-    conn = sqlite3.connect(db_path)
-    cursor = conn.execute("SELECT COUNT(*) FROM tweets")
-    count: int = cursor.fetchone()[0]
-    conn.close()
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute("SELECT COUNT(*) FROM tweets")
+        count: int = cursor.fetchone()[0]
     return count
 
 
@@ -32,12 +31,11 @@ def get_collection_counts(db_path: Path) -> dict[str, int]:
     """Get counts for each collection type."""
     if not db_path.exists():
         return {}
-    conn = sqlite3.connect(db_path)
-    cursor = conn.execute(
-        "SELECT collection_type, COUNT(*) FROM collections GROUP BY collection_type"
-    )
-    counts = {row[0]: row[1] for row in cursor.fetchall()}
-    conn.close()
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT collection_type, COUNT(*) FROM collections GROUP BY collection_type"
+        )
+        counts = {row[0]: row[1] for row in cursor.fetchall()}
     return counts
 
 
@@ -45,12 +43,11 @@ def get_last_sync_times(db_path: Path) -> dict[str, str | None]:
     """Get last sync completion time for each collection type."""
     if not db_path.exists():
         return {}
-    conn = sqlite3.connect(db_path)
-    cursor = conn.execute(
-        "SELECT collection_type, completed_at FROM sync_progress WHERE status = 'completed'"
-    )
-    times = {row[0]: row[1] for row in cursor.fetchall()}
-    conn.close()
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT collection_type, completed_at FROM sync_progress WHERE status = 'completed'"
+        )
+        times = {row[0]: row[1] for row in cursor.fetchall()}
     return times
 
 

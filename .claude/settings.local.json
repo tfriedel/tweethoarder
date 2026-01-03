@@ -13,7 +13,8 @@
       "Bash(bd list:*)",
       "Bash(bd dep tree:*)",
       "Bash(bd show:*)",
-      "Bash(bd update:*)"
+      "Bash(bd update:*)",
+      "Bash(just ci:*)"
     ],
     "deny": [],
     "ask": []
