@@ -300,3 +300,46 @@ def test_get_tweets_by_collection_returns_tweets(tmp_path: Path) -> None:
     assert len(tweets) == 1
     assert tweets[0]["id"] == "123456789"
     assert tweets[0]["text"] == "Hello!"
+
+
+def test_init_database_creates_threads_table(tmp_path: Path) -> None:
+    """Database should have a threads table for storing thread/conversation metadata."""
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    assert _table_exists(db_path, "threads")
+
+
+def test_collections_table_has_thread_id_column(tmp_path: Path) -> None:
+    """Collections table should have thread_id column for linking to threads table."""
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("PRAGMA table_info(collections)")
+    columns = {row[1] for row in cursor.fetchall()}
+    conn.close()
+
+    assert "thread_id" in columns
+
+
+def test_init_database_creates_threads_indexes(tmp_path: Path) -> None:
+    """Database should have indexes for the threads table."""
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'"
+    )
+    indexes = {row[0] for row in cursor.fetchall()}
+    conn.close()
+
+    assert "idx_threads_conversation" in indexes
+    assert "idx_threads_focal" in indexes
