@@ -71,10 +71,18 @@ async def fetch_bookmarks_page(
     client: httpx.AsyncClient,
     query_id: str,
     cursor: str | None = None,
+    on_query_id_refresh: Callable[[], Awaitable[str]] | None = None,
 ) -> dict[str, Any]:
     """Fetch a page of bookmarks from the Twitter API."""
-    url = build_bookmarks_url(query_id, cursor)
+    current_query_id = query_id
+    url = build_bookmarks_url(current_query_id, cursor)
     response = await client.get(url)
+
+    if response.status_code == 404 and on_query_id_refresh:
+        current_query_id = await on_query_id_refresh()
+        url = build_bookmarks_url(current_query_id, cursor)
+        response = await client.get(url)
+
     response.raise_for_status()
     result: dict[str, Any] = response.json()
     return result

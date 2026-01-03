@@ -156,8 +156,20 @@ async def sync_bookmarks_async(db_path: Path, count: float) -> dict[str, int]:
     last_tweet_id: str | None = None
 
     async with httpx.AsyncClient(headers=headers) as http_client:
+
+        async def refresh_and_get_bookmarks_id() -> str:
+            """Refresh query IDs and return the new Bookmarks ID."""
+            new_ids: dict[str, str] = await refresh_query_ids(http_client, targets={"Bookmarks"})
+            store.save(new_ids)
+            return new_ids["Bookmarks"]
+
         while synced_count < count:
-            response = await fetch_bookmarks_page(http_client, query_id, cursor)
+            response = await fetch_bookmarks_page(
+                http_client,
+                query_id,
+                cursor,
+                on_query_id_refresh=refresh_and_get_bookmarks_id,
+            )
             tweets, cursor = parse_bookmarks_response(response)
 
             if not tweets:

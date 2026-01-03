@@ -439,3 +439,48 @@ async def test_sync_bookmarks_async_saves_checkpoint_after_page(tmp_path: Path) 
     assert saved is not None
     assert saved.cursor == "next_cursor"
     assert saved.last_tweet_id == "1"
+
+
+@pytest.mark.asyncio
+async def test_sync_bookmarks_async_refreshes_query_id_on_404(tmp_path: Path) -> None:
+    """sync_bookmarks_async should refresh query ID on 404 and retry."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    import httpx
+
+    from tweethoarder.cli.sync import sync_bookmarks_async
+
+    db_path = tmp_path / "test.db"
+
+    # First call returns 404, second returns success
+    not_found_response = MagicMock()
+    not_found_response.status_code = 404
+    not_found_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Not found", request=MagicMock(), response=not_found_response
+    )
+
+    page = _make_bookmarks_response([_make_bookmark_entry("1", "After refresh")])
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = page
+    success_response.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t"}
+        with patch("tweethoarder.query_ids.store.QueryIdStore") as mock_store_cls:
+            mock_store = MagicMock()
+            mock_store.get.return_value = "OLD_QUERY_ID"
+            mock_store.save = MagicMock()
+            mock_store_cls.return_value = mock_store
+            with patch("tweethoarder.cli.sync.refresh_query_ids") as mock_refresh:
+                mock_refresh.return_value = {"Bookmarks": "NEW_QUERY_ID"}
+                with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+                    mock_client = AsyncMock()
+                    mock_client.get.side_effect = [not_found_response, success_response]
+                    mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+                    result = await sync_bookmarks_async(db_path=db_path, count=10)
+
+    assert result["synced_count"] == 1
+    mock_refresh.assert_called_once()
+    mock_store.save.assert_called_once()
