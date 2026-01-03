@@ -41,6 +41,19 @@ def test_build_likes_url_includes_features() -> None:
     assert "features" in url
 
 
+def test_build_likes_url_includes_required_variables() -> None:
+    """build_likes_url should include all required variables for the API."""
+    from tweethoarder.client.timelines import build_likes_url
+
+    url = build_likes_url(query_id="ABC123", user_id="12345")
+
+    # These variables are required by Twitter's API (from bird reference implementation)
+    assert "includePromotedContent" in url
+    assert "withClientEventToken" in url
+    assert "withBirdwatchNotes" in url
+    assert "withVoice" in url
+
+
 def test_fetch_likes_page_exists() -> None:
     """fetch_likes_page function should be importable."""
     from tweethoarder.client.timelines import fetch_likes_page
@@ -90,11 +103,12 @@ def test_parse_likes_response_extracts_tweets() -> None:
     """parse_likes_response should extract tweet entries from API response."""
     from tweethoarder.client.timelines import parse_likes_response
 
+    # Current Twitter API response format uses 'timeline' not 'timeline_v2'
     response = {
         "data": {
             "user": {
                 "result": {
-                    "timeline_v2": {
+                    "timeline": {
                         "timeline": {
                             "instructions": [
                                 {
@@ -134,11 +148,12 @@ def test_parse_likes_response_extracts_cursor() -> None:
     """parse_likes_response should extract the next cursor for pagination."""
     from tweethoarder.client.timelines import parse_likes_response
 
+    # Current Twitter API response format uses 'timeline' not 'timeline_v2'
     response = {
         "data": {
             "user": {
                 "result": {
-                    "timeline_v2": {
+                    "timeline": {
                         "timeline": {
                             "instructions": [
                                 {
@@ -171,13 +186,14 @@ def test_extract_tweet_data_returns_db_format() -> None:
     """extract_tweet_data should convert raw tweet to database format."""
     from tweethoarder.client.timelines import extract_tweet_data
 
+    # Current Twitter API response format has screen_name in user_result.core
     raw_tweet = {
         "rest_id": "123456789",
         "core": {
             "user_results": {
                 "result": {
                     "rest_id": "987654321",
-                    "legacy": {
+                    "core": {
                         "screen_name": "testuser",
                         "name": "Test User",
                     },
@@ -207,13 +223,14 @@ def test_extract_tweet_data_converts_date_to_iso8601() -> None:
     """extract_tweet_data should convert Twitter date format to ISO 8601."""
     from tweethoarder.client.timelines import extract_tweet_data
 
+    # Current Twitter API response format has screen_name in user_result.core
     raw_tweet = {
         "rest_id": "123",
         "core": {
             "user_results": {
                 "result": {
                     "rest_id": "456",
-                    "legacy": {"screen_name": "user", "name": "User"},
+                    "core": {"screen_name": "user", "name": "User"},
                 }
             }
         },

@@ -29,7 +29,14 @@ def build_likes_url(query_id: str, user_id: str, cursor: str | None = None) -> s
     Returns:
         The complete URL for the GraphQL request.
     """
-    variables: dict[str, str | int] = {"userId": user_id, "count": 20}
+    variables: dict[str, str | int | bool] = {
+        "userId": user_id,
+        "count": 20,
+        "includePromotedContent": False,
+        "withClientEventToken": False,
+        "withBirdwatchNotes": False,
+        "withVoice": True,
+    }
     if cursor:
         variables["cursor"] = cursor
     features = build_likes_features()
@@ -115,7 +122,7 @@ def parse_likes_response(
         response.get("data", {})
         .get("user", {})
         .get("result", {})
-        .get("timeline_v2", {})
+        .get("timeline", {})
         .get("timeline", {})
     )
 
@@ -165,12 +172,12 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     """
     legacy = raw_tweet.get("legacy", {})
     user_result = raw_tweet.get("core", {}).get("user_results", {}).get("result", {})
-    user_legacy = user_result.get("legacy", {})
+    user_core = user_result.get("core", {})
 
     tweet_id = raw_tweet.get("rest_id")
     text = legacy.get("full_text")
     author_id = user_result.get("rest_id")
-    author_username = user_legacy.get("screen_name")
+    author_username = user_core.get("screen_name")
     created_at = _convert_twitter_date_to_iso8601(legacy.get("created_at"))
 
     if not all([tweet_id, text, author_id, author_username, created_at]):
@@ -181,7 +188,7 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
         "text": text,
         "author_id": author_id,
         "author_username": author_username,
-        "author_display_name": user_legacy.get("name"),
+        "author_display_name": user_core.get("name"),
         "created_at": created_at,
         "conversation_id": legacy.get("conversation_id_str"),
         "reply_count": legacy.get("reply_count", 0),

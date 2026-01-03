@@ -21,9 +21,19 @@ class TwitterClient:
     def get_base_headers(self) -> dict[str, str]:
         """Get base HTTP headers for API requests."""
         return {
+            "accept": "*/*",
             "authorization": BEARER_TOKEN,
             "x-csrf-token": self._ct0,
+            "x-twitter-auth-type": "OAuth2Session",
+            "x-twitter-active-user": "yes",
+            "x-twitter-client-language": "en",
             "cookie": f"auth_token={self._auth_token}; ct0={self._ct0}",
+            "origin": "https://x.com",
+            "referer": "https://x.com/",
+            "user-agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            ),
         }
 
     def get_json_headers(self) -> dict[str, str]:

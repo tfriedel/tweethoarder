@@ -55,7 +55,7 @@ async def test_sync_likes_async_returns_synced_count(tmp_path: Path) -> None:
         "data": {
             "user": {
                 "result": {
-                    "timeline_v2": {
+                    "timeline": {
                         "timeline": {
                             "instructions": [
                                 {
@@ -87,7 +87,11 @@ async def test_sync_likes_async_returns_synced_count(tmp_path: Path) -> None:
 
 
 def _make_tweet_entry(tweet_id: str, text: str = "Hello") -> dict:
-    """Create a mock tweet entry for testing."""
+    """Create a mock tweet entry for testing.
+
+    Uses the current Twitter API response structure where user info is in
+    result.core instead of result.legacy.
+    """
     return {
         "entryId": f"tweet-{tweet_id}",
         "content": {
@@ -100,7 +104,7 @@ def _make_tweet_entry(tweet_id: str, text: str = "Hello") -> dict:
                             "user_results": {
                                 "result": {
                                     "rest_id": "456",
-                                    "legacy": {"screen_name": "user", "name": "User"},
+                                    "core": {"screen_name": "user", "name": "User"},
                                 }
                             }
                         },
@@ -117,12 +121,15 @@ def _make_tweet_entry(tweet_id: str, text: str = "Hello") -> dict:
 
 
 def _make_likes_response(entries: list) -> dict:
-    """Create a mock likes API response."""
+    """Create a mock likes API response.
+
+    Uses the current Twitter API response structure with timeline instead of timeline_v2.
+    """
     return {
         "data": {
             "user": {
                 "result": {
-                    "timeline_v2": {
+                    "timeline": {
                         "timeline": {
                             "instructions": [{"type": "TimelineAddEntries", "entries": entries}]
                         }
