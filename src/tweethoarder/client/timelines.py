@@ -284,6 +284,12 @@ def _convert_twitter_date_to_iso8601(twitter_date: str | None) -> str | None:
     return parsed.isoformat()
 
 
+def is_repost(raw_tweet: dict[str, Any]) -> bool:
+    """Check if a raw tweet is a repost (retweet)."""
+    legacy = raw_tweet.get("legacy", {})
+    return "retweeted_status_result" in legacy
+
+
 def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     """Extract and convert raw tweet data to database format.
 
