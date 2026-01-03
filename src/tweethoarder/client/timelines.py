@@ -71,18 +71,17 @@ async def fetch_likes_page(
         response = await client.get(url)
 
         if response.status_code == 429:
-            delay = base_delay * (2**attempt)
-            await asyncio.sleep(delay)
-            continue
+            if attempt < max_retries - 1:
+                delay = base_delay * (2**attempt)
+                await asyncio.sleep(delay)
+                continue
+            response.raise_for_status()
 
         response.raise_for_status()
         result: dict[str, Any] = response.json()
         return result
 
-    response = await client.get(url)
-    response.raise_for_status()
-    result = response.json()
-    return result
+    raise RuntimeError("Unreachable: retry loop should always return or raise")
 
 
 def parse_likes_response(

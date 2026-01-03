@@ -278,3 +278,35 @@ def test_extract_tweet_data_returns_none_for_missing_required_fields() -> None:
     result = extract_tweet_data(incomplete_tweet)
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_likes_page_raises_after_max_retries_exhausted() -> None:
+    """fetch_likes_page should raise HTTPStatusError after all retries exhausted."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    import httpx
+
+    from tweethoarder.client.timelines import fetch_likes_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+    rate_limit_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Rate limited", request=MagicMock(), response=rate_limit_response
+    )
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = rate_limit_response
+
+    with (
+        patch("tweethoarder.client.timelines.asyncio.sleep", new_callable=AsyncMock),
+        pytest.raises(httpx.HTTPStatusError),
+    ):
+        await fetch_likes_page(
+            client=mock_client,
+            query_id="ABC123",
+            user_id="12345",
+            max_retries=3,
+        )
+
+    assert mock_client.get.call_count == 3
