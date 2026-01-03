@@ -2,7 +2,7 @@
 
 import typer
 
-from tweethoarder.cli import export, sync
+from tweethoarder.cli import config, export, sync
 from tweethoarder.cli import stats as stats_module
 from tweethoarder.config import get_config_dir
 from tweethoarder.query_ids.scraper import refresh_query_ids
@@ -14,6 +14,7 @@ app = typer.Typer(
 
 app.add_typer(sync.app, name="sync")
 app.add_typer(export.app, name="export")
+app.add_typer(config.app, name="config")
 
 
 @app.command()
