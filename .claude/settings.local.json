@@ -14,7 +14,8 @@
       "Bash(bd dep tree:*)",
       "Bash(bd show:*)",
       "Bash(bd update:*)",
-      "Bash(just ci:*)"
+      "Bash(just ci:*)",
+      "Bash(bd create:*)"
     ],
     "deny": [],
     "ask": []
