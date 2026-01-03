@@ -15,7 +15,8 @@
       "Bash(bd show:*)",
       "Bash(bd update:*)",
       "Bash(just ci:*)",
-      "Bash(bd create:*)"
+      "Bash(bd create:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []
