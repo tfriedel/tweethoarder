@@ -16,9 +16,13 @@ def test_thread_command_exists() -> None:
 
 def test_thread_command_has_depth_option() -> None:
     """Thread command should have --depth option."""
+    import re
+
     result = runner.invoke(app, ["thread", "--help"])
     assert result.exit_code == 0
-    assert "--depth" in result.output
+    # Strip ANSI escape codes for reliable matching
+    clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--depth" in clean_output
 
 
 def test_thread_command_displays_tweet_id() -> None:
