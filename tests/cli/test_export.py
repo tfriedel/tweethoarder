@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from conftest import strip_ansi
 from typer.testing import CliRunner
 
 from tweethoarder.cli.main import app
@@ -46,14 +47,14 @@ def test_export_json_has_collection_option() -> None:
     """Export json command should have collection option."""
     result = runner.invoke(app, ["export", "json", "--help"])
     assert result.exit_code == 0
-    assert "--collection" in result.output
+    assert "--collection" in strip_ansi(result.output)
 
 
 def test_export_json_has_output_option() -> None:
     """Export json command should have output path option."""
     result = runner.invoke(app, ["export", "json", "--help"])
     assert result.exit_code == 0
-    assert "--output" in result.output
+    assert "--output" in strip_ansi(result.output)
 
 
 def test_export_markdown_command_exists() -> None:
@@ -67,7 +68,7 @@ def test_export_markdown_has_collection_option() -> None:
     """Export markdown command should have collection option."""
     result = runner.invoke(app, ["export", "markdown", "--help"])
     assert result.exit_code == 0
-    assert "--collection" in result.output
+    assert "--collection" in strip_ansi(result.output)
 
 
 def test_export_markdown_writes_file(tmp_path: Path, monkeypatch: object) -> None:
@@ -131,7 +132,7 @@ def test_export_csv_has_collection_option() -> None:
     """Export csv command should have collection option."""
     result = runner.invoke(app, ["export", "csv", "--help"])
     assert result.exit_code == 0
-    assert "--collection" in result.output
+    assert "--collection" in strip_ansi(result.output)
 
 
 def test_export_csv_writes_file(tmp_path: Path, monkeypatch: object) -> None:

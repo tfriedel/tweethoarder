@@ -1,5 +1,6 @@
 """Tests for the sync CLI commands."""
 
+from conftest import strip_ansi
 from typer.testing import CliRunner
 
 from tweethoarder.cli.main import app
@@ -39,11 +40,11 @@ def test_sync_likes_accepts_count_option() -> None:
     """The sync likes command should accept a --count option."""
     result = runner.invoke(app, ["sync", "likes", "--help"])
     assert result.exit_code == 0
-    assert "--count" in result.output
+    assert "--count" in strip_ansi(result.output)
 
 
 def test_sync_likes_accepts_all_flag() -> None:
     """The sync likes command should accept an --all flag for unlimited sync."""
     result = runner.invoke(app, ["sync", "likes", "--help"])
     assert result.exit_code == 0
-    assert "--all" in result.output
+    assert "--all" in strip_ansi(result.output)

@@ -1,12 +1,21 @@
 """Shared test fixtures and utilities."""
 
 import os
+import re
 from typing import Any
 
 import pytest
 
 # Disable Rich color output for consistent test output across environments
 os.environ["NO_COLOR"] = "1"
+
+# Pattern to match ANSI escape sequences
+_ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text for consistent test assertions."""
+    return _ANSI_PATTERN.sub("", text)
 
 
 def _make_tweet(
