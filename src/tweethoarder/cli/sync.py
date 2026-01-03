@@ -127,9 +127,39 @@ def likes(
     typer.echo(f"Synced {result['synced_count']} likes.")
 
 
-async def sync_bookmarks_async(db_path: Path, count: float) -> None:
+async def sync_bookmarks_async(db_path: Path, count: float) -> dict[str, int]:
     """Sync bookmarks asynchronously."""
-    pass
+    from tweethoarder.client.timelines import (
+        extract_tweet_data,
+        fetch_bookmarks_page,
+        parse_bookmarks_response,
+    )
+    from tweethoarder.query_ids.store import QueryIdStore
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    init_database(db_path)
+    cookies = resolve_cookies()
+    if not cookies:
+        raise ValueError("No cookies found")
+
+    client = TwitterClient(cookies)
+    cache_path = get_config_dir() / "query-ids-cache.json"
+    store = QueryIdStore(cache_path)
+    query_id = store.get("Bookmarks")
+    headers = client.get_base_headers()
+    synced_count = 0
+
+    async with httpx.AsyncClient(headers=headers) as http_client:
+        response = await fetch_bookmarks_page(http_client, query_id)
+        tweets, _ = parse_bookmarks_response(response)
+        for raw_tweet in tweets:
+            tweet_data = extract_tweet_data(raw_tweet)
+            if tweet_data:
+                save_tweet(db_path, tweet_data)
+                add_to_collection(db_path, tweet_data["id"], "bookmark")
+                synced_count += 1
+
+    return {"synced_count": synced_count}
 
 
 @app.command()
@@ -138,6 +168,14 @@ def bookmarks(
     all_bookmarks: bool = typer.Option(False, "--all", help="Sync all bookmarks (ignore count)."),
 ) -> None:
     """Sync bookmarked tweets to local storage."""
+    import asyncio
+
+    from tweethoarder.config import get_data_dir
+
+    db_path = get_data_dir() / "tweethoarder.db"
+    effective_count = float("inf") if all_bookmarks else count
+    result = asyncio.run(sync_bookmarks_async(db_path, effective_count))
+    typer.echo(f"Synced {result['synced_count']} bookmarks.")
 
 
 @app.command()
