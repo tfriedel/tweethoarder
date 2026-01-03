@@ -531,40 +531,42 @@ async def test_fetch_likes():
 3. ✅ SQLite database setup
 4. ✅ Basic Typer CLI skeleton
 
-### Phase 2: Authentication 🟡
+### Phase 2: Authentication ✅
 1. ✅ Firefox cookie extraction (including snap path)
-2. ⏳ Chrome cookie extraction with keyring
+2. ✅ Chrome cookie extraction with keyring
 3. ✅ Cookie resolution flow
 4. ✅ Manual cookie fallback (env vars, config file)
 
-### Phase 3: Twitter Client 🟡
+### Phase 3: Twitter Client ✅
 1. ✅ Base HTTP client with headers
 2. ✅ Query ID management (baseline + cache)
-3. ⏳ Query ID refresh from bundles (scraper patterns exist, refresh not wired up)
+3. ✅ Query ID refresh from bundles
 4. ✅ Rate limiting with exponential backoff
 
-### Phase 4: Sync Commands 🟡
+### Phase 4: Sync Commands ✅
 1. ✅ Likes sync with pagination
-2. ⏳ Bookmarks sync (including folders)
-3. ⏳ User tweets sync
-4. ⏳ Reposts sync
-5. ✅ Checkpointing infrastructure (not yet integrated into sync commands)
+2. ✅ Bookmarks sync (including folders)
+3. ✅ User tweets sync
+4. ✅ Reposts sync
+5. ✅ Checkpointing infrastructure
 
 ### Phase 5: Additional Features 🟡
-1. ⏳ Thread fetching (on-demand)
-2. ⏳ Quoted tweet resolution
+1. ⏳ Thread fetching (on-demand) - CLI stub exists
+2. ✅ Quoted tweet resolution
 3. ✅ Stats command
-4. ⏳ Progress display (rich imported but not used)
+4. ✅ Progress display
+5. ✅ Config show/set commands
 
-### Phase 6: Export 🟡
-1. 🟡 JSON export (formatting done, CLI stub)
-2. ⏳ Markdown export
-3. ⏳ HTML single-file viewer
+### Phase 6: Export ✅
+1. ✅ JSON export
+2. ✅ Markdown export
+3. ✅ HTML single-file viewer
+4. ✅ CSV export
 
 ### Phase 7: Testing & Polish 🟡
-1. ✅ Unit tests with mocks
+1. ✅ Unit tests with mocks (217 tests)
 2. ⏳ Integration tests with VCR.py
-3. ⏳ Error handling edge cases
+3. ✅ Error handling edge cases
 4. ⏳ Documentation
 
 **Legend:** ✅ Complete | 🟡 Partial | ⏳ Pending

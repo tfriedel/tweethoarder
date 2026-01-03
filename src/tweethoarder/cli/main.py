@@ -29,7 +29,7 @@ def thread(
     depth: int = typer.Option(5, "--depth", "-d", help="Maximum depth of thread to fetch."),
 ) -> None:
     """Fetch thread context for a tweet."""
-    pass
+    typer.echo(f"Fetching thread for tweet {tweet_id} (depth: {depth})")
 
 
 @app.command(name="refresh-ids")
