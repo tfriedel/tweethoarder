@@ -11,7 +11,9 @@
       "WebFetch(domain:worktrunk.dev)",
       "Bash(bd ready:*)",
       "Bash(bd list:*)",
-      "Bash(bd dep tree:*)"
+      "Bash(bd dep tree:*)",
+      "Bash(bd show:*)",
+      "Bash(bd update:*)"
     ],
     "deny": [],
     "ask": []
