@@ -3,6 +3,138 @@
 import pytest
 
 
+def test_build_bookmarks_url_includes_query_id() -> None:
+    """build_bookmarks_url should include the Bookmarks query ID in the path."""
+    from tweethoarder.client.timelines import build_bookmarks_url
+
+    url = build_bookmarks_url(query_id="BOOK123")
+
+    assert "BOOK123" in url
+    assert "/graphql/" in url
+
+
+def test_build_bookmarks_url_includes_features() -> None:
+    """build_bookmarks_url should include features query param."""
+    from tweethoarder.client.timelines import build_bookmarks_url
+
+    url = build_bookmarks_url(query_id="BOOK123")
+
+    assert "features" in url
+
+
+def test_build_bookmarks_url_includes_variables() -> None:
+    """build_bookmarks_url should include variables query param."""
+    from tweethoarder.client.timelines import build_bookmarks_url
+
+    url = build_bookmarks_url(query_id="BOOK123")
+
+    assert "variables" in url
+
+
+def test_build_bookmarks_url_includes_cursor_when_provided() -> None:
+    """build_bookmarks_url should include cursor for pagination when provided."""
+    from tweethoarder.client.timelines import build_bookmarks_url
+
+    url = build_bookmarks_url(query_id="BOOK123", cursor="cursor_xyz")
+
+    assert "cursor_xyz" in url
+
+
+def test_fetch_bookmarks_page_exists() -> None:
+    """fetch_bookmarks_page function should be importable."""
+    from tweethoarder.client.timelines import fetch_bookmarks_page
+
+    assert callable(fetch_bookmarks_page)
+
+
+def test_fetch_bookmarks_page_accepts_required_params() -> None:
+    """fetch_bookmarks_page should accept client and query_id parameters."""
+    import inspect
+
+    from tweethoarder.client.timelines import fetch_bookmarks_page
+
+    sig = inspect.signature(fetch_bookmarks_page)
+    params = list(sig.parameters.keys())
+
+    assert "client" in params
+    assert "query_id" in params
+
+
+@pytest.mark.asyncio
+async def test_fetch_bookmarks_page_returns_dict() -> None:
+    """fetch_bookmarks_page should return parsed JSON response."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_bookmarks_page
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"data": {"bookmark_timeline_v2": {}}}
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_response
+
+    result = await fetch_bookmarks_page(
+        client=mock_client,
+        query_id="BOOK123",
+    )
+
+    assert isinstance(result, dict)
+    assert "data" in result
+
+
+def test_parse_bookmarks_response_extracts_tweets() -> None:
+    """parse_bookmarks_response should extract tweet entries from API response."""
+    from tweethoarder.client.timelines import parse_bookmarks_response
+
+    response = {
+        "data": {
+            "bookmark_timeline_v2": {
+                "timeline": {
+                    "instructions": [
+                        {
+                            "type": "TimelineAddEntries",
+                            "entries": [
+                                {
+                                    "entryId": "tweet-123",
+                                    "content": {
+                                        "entryType": "TimelineTimelineItem",
+                                        "itemContent": {
+                                            "tweet_results": {
+                                                "result": {
+                                                    "rest_id": "123",
+                                                    "legacy": {"full_text": "Hello"},
+                                                }
+                                            }
+                                        },
+                                    },
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        }
+    }
+
+    tweets, _cursor = parse_bookmarks_response(response)
+
+    assert len(tweets) == 1
+    assert tweets[0]["rest_id"] == "123"
+
+
+def test_fetch_bookmarks_page_accepts_cursor_param() -> None:
+    """fetch_bookmarks_page should accept optional cursor parameter."""
+    import inspect
+
+    from tweethoarder.client.timelines import fetch_bookmarks_page
+
+    sig = inspect.signature(fetch_bookmarks_page)
+    params = list(sig.parameters.keys())
+
+    assert "cursor" in params
+
+
 def test_build_likes_url_includes_query_id() -> None:
     """build_likes_url should include the Likes query ID in the path."""
     from tweethoarder.client.timelines import build_likes_url
@@ -358,6 +490,42 @@ async def test_fetch_likes_page_calls_refresh_callback_on_404() -> None:
         client=mock_client,
         query_id="OLD_QUERY_ID",
         user_id="12345",
+        on_query_id_refresh=refresh_callback,
+    )
+
+    refresh_callback.assert_called_once()
+    assert mock_client.get.call_count == 2
+    assert "data" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_bookmarks_page_calls_refresh_callback_on_404() -> None:
+    """fetch_bookmarks_page should call on_query_id_refresh callback on 404."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    import httpx
+
+    from tweethoarder.client.timelines import fetch_bookmarks_page
+
+    not_found_response = MagicMock()
+    not_found_response.status_code = 404
+    not_found_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Not found", request=MagicMock(), response=not_found_response
+    )
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"bookmark_timeline_v2": {}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [not_found_response, success_response]
+
+    refresh_callback = AsyncMock(return_value="NEW_QUERY_ID")
+
+    result = await fetch_bookmarks_page(
+        client=mock_client,
+        query_id="OLD_QUERY_ID",
         on_query_id_refresh=refresh_callback,
     )
 

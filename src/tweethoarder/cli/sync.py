@@ -127,9 +127,90 @@ def likes(
     typer.echo(f"Synced {result['synced_count']} likes.")
 
 
+async def sync_bookmarks_async(db_path: Path, count: float) -> dict[str, int]:
+    """Sync bookmarks asynchronously."""
+    from tweethoarder.client.timelines import (
+        extract_tweet_data,
+        fetch_bookmarks_page,
+        parse_bookmarks_response,
+    )
+    from tweethoarder.query_ids.store import QueryIdStore
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    init_database(db_path)
+    cookies = resolve_cookies()
+    if not cookies:
+        raise ValueError("No cookies found")
+
+    client = TwitterClient(cookies)
+    cache_path = get_config_dir() / "query-ids-cache.json"
+    store = QueryIdStore(cache_path)
+    query_id = store.get("Bookmarks")
+    headers = client.get_base_headers()
+    synced_count = 0
+
+    # Load checkpoint for resume capability
+    checkpoint = SyncCheckpoint(db_path)
+    saved_checkpoint = checkpoint.load("bookmark")
+    cursor: str | None = saved_checkpoint.cursor if saved_checkpoint else None
+    last_tweet_id: str | None = None
+
+    async with httpx.AsyncClient(headers=headers) as http_client:
+
+        async def refresh_and_get_bookmarks_id() -> str:
+            """Refresh query IDs and return the new Bookmarks ID."""
+            new_ids: dict[str, str] = await refresh_query_ids(http_client, targets={"Bookmarks"})
+            store.save(new_ids)
+            return new_ids["Bookmarks"]
+
+        while synced_count < count:
+            response = await fetch_bookmarks_page(
+                http_client,
+                query_id,
+                cursor,
+                on_query_id_refresh=refresh_and_get_bookmarks_id,
+            )
+            tweets, cursor = parse_bookmarks_response(response)
+
+            if not tweets:
+                break
+
+            for raw_tweet in tweets:
+                if synced_count >= count:
+                    break
+                tweet_data = extract_tweet_data(raw_tweet)
+                if tweet_data:
+                    save_tweet(db_path, tweet_data)
+                    add_to_collection(db_path, tweet_data["id"], "bookmark")
+                    last_tweet_id = tweet_data["id"]
+                    synced_count += 1
+
+            # Save checkpoint after each page for resume capability
+            if cursor and last_tweet_id:
+                checkpoint.save("bookmark", cursor=cursor, last_tweet_id=last_tweet_id)
+
+            if not cursor:
+                break
+
+    # Clear checkpoint on successful completion
+    checkpoint.clear("bookmark")
+    return {"synced_count": synced_count}
+
+
 @app.command()
-def bookmarks() -> None:
+def bookmarks(
+    count: int = typer.Option(100, "--count", "-c", help="Number of bookmarks to sync."),
+    all_bookmarks: bool = typer.Option(False, "--all", help="Sync all bookmarks (ignore count)."),
+) -> None:
     """Sync bookmarked tweets to local storage."""
+    import asyncio
+
+    from tweethoarder.config import get_data_dir
+
+    db_path = get_data_dir() / "tweethoarder.db"
+    effective_count = float("inf") if all_bookmarks else count
+    result = asyncio.run(sync_bookmarks_async(db_path, effective_count))
+    typer.echo(f"Synced {result['synced_count']} bookmarks.")
 
 
 @app.command()
