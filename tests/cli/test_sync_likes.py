@@ -55,7 +55,7 @@ async def test_sync_likes_async_returns_synced_count(tmp_path: Path) -> None:
         "data": {
             "user": {
                 "result": {
-                    "timeline_v2": {
+                    "timeline": {
                         "timeline": {
                             "instructions": [
                                 {
@@ -87,7 +87,11 @@ async def test_sync_likes_async_returns_synced_count(tmp_path: Path) -> None:
 
 
 def _make_tweet_entry(tweet_id: str, text: str = "Hello") -> dict:
-    """Create a mock tweet entry for testing."""
+    """Create a mock tweet entry for testing.
+
+    Uses the current Twitter API response structure where user info is in
+    result.core instead of result.legacy.
+    """
     return {
         "entryId": f"tweet-{tweet_id}",
         "content": {
@@ -100,7 +104,7 @@ def _make_tweet_entry(tweet_id: str, text: str = "Hello") -> dict:
                             "user_results": {
                                 "result": {
                                     "rest_id": "456",
-                                    "legacy": {"screen_name": "user", "name": "User"},
+                                    "core": {"screen_name": "user", "name": "User"},
                                 }
                             }
                         },
@@ -117,12 +121,15 @@ def _make_tweet_entry(tweet_id: str, text: str = "Hello") -> dict:
 
 
 def _make_likes_response(entries: list) -> dict:
-    """Create a mock likes API response."""
+    """Create a mock likes API response.
+
+    Uses the current Twitter API response structure with timeline instead of timeline_v2.
+    """
     return {
         "data": {
             "user": {
                 "result": {
-                    "timeline_v2": {
+                    "timeline": {
                         "timeline": {
                             "instructions": [{"type": "TimelineAddEntries", "entries": entries}]
                         }
@@ -291,3 +298,113 @@ async def test_sync_likes_async_skips_incomplete_tweets(tmp_path: Path) -> None:
     conn.close()
 
     assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_likes_async_passes_refresh_callback_to_fetch(tmp_path: Path) -> None:
+    """sync_likes_async should pass on_query_id_refresh callback to fetch_likes_page."""
+    from unittest.mock import patch
+
+    from tweethoarder.cli.sync import sync_likes_async
+
+    db_path = tmp_path / "test.db"
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t", "twid": "u%3D12345"}
+        with patch("tweethoarder.cli.sync.fetch_likes_page") as mock_fetch:
+            mock_fetch.return_value = {
+                "data": {"user": {"result": {"timeline": {"timeline": {"instructions": []}}}}}
+            }
+
+            await sync_likes_async(db_path=db_path, count=10)
+
+            mock_fetch.assert_called()
+            call_kwargs = mock_fetch.call_args.kwargs
+            assert "on_query_id_refresh" in call_kwargs
+            assert callable(call_kwargs["on_query_id_refresh"])
+
+
+@pytest.mark.asyncio
+async def test_sync_likes_async_saves_checkpoint_after_each_page(tmp_path: Path) -> None:
+    """sync_likes_async should save checkpoint after processing each page."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_likes_async
+    from tweethoarder.storage.checkpoint import SyncCheckpoint
+
+    db_path = tmp_path / "test.db"
+
+    page1_response = _make_likes_response(
+        [
+            _make_tweet_entry("1", "Tweet 1"),
+            _make_cursor_entry("cursor_page2"),
+        ]
+    )
+    page2_response = _make_likes_response([_make_tweet_entry("2", "Tweet 2")])
+
+    mock_responses = [page1_response, page2_response]
+    response_index = [0]
+
+    def get_response() -> MagicMock:
+        resp = MagicMock()
+        resp.json.return_value = mock_responses[response_index[0]]
+        resp.raise_for_status = MagicMock()
+        response_index[0] += 1
+        return resp
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t", "twid": "u%3D12345"}
+        with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.side_effect = lambda url: get_response()
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            await sync_likes_async(db_path=db_path, count=10)
+
+    # Verify checkpoint was saved (and cleared on completion)
+    checkpoint = SyncCheckpoint(db_path)
+    saved = checkpoint.load("like")
+    # After successful completion, checkpoint should be cleared
+    assert saved is None
+
+
+@pytest.mark.asyncio
+async def test_sync_likes_async_resumes_from_checkpoint(tmp_path: Path) -> None:
+    """sync_likes_async should resume from saved checkpoint cursor."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_likes_async
+    from tweethoarder.storage.checkpoint import SyncCheckpoint
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Pre-save a checkpoint with cursor
+    checkpoint = SyncCheckpoint(db_path)
+    checkpoint.save("like", cursor="saved_cursor", last_tweet_id="999")
+
+    # Only return page 2 data (simulating resume)
+    page2_response = _make_likes_response([_make_tweet_entry("2", "Tweet 2")])
+
+    def get_response() -> MagicMock:
+        resp = MagicMock()
+        resp.json.return_value = page2_response
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t", "twid": "u%3D12345"}
+        with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.side_effect = lambda url: get_response()
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+            with patch("tweethoarder.cli.sync.fetch_likes_page") as mock_fetch:
+                mock_fetch.return_value = page2_response
+
+                await sync_likes_async(db_path=db_path, count=10)
+
+                # Verify fetch was called with the saved cursor
+                mock_fetch.assert_called()
+                call_args = mock_fetch.call_args
+                assert call_args[0][3] == "saved_cursor"  # cursor is 4th positional arg

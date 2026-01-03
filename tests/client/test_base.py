@@ -69,3 +69,30 @@ def test_get_json_headers_includes_content_type() -> None:
     assert headers["content-type"] == "application/json"
     # Should also include base headers
     assert "authorization" in headers
+
+
+def test_get_base_headers_includes_twitter_auth_headers() -> None:
+    """get_base_headers should include Twitter authentication headers."""
+    from tweethoarder.client.base import TwitterClient
+
+    client = TwitterClient(cookies={"auth_token": "test_auth", "ct0": "test_ct0"})
+    headers = client.get_base_headers()
+
+    # These headers are required by Twitter's API (from bird reference implementation)
+    assert headers["x-twitter-auth-type"] == "OAuth2Session"
+    assert headers["x-twitter-active-user"] == "yes"
+    assert headers["x-twitter-client-language"] == "en"
+
+
+def test_get_base_headers_includes_browser_headers() -> None:
+    """get_base_headers should include browser-like headers."""
+    from tweethoarder.client.base import TwitterClient
+
+    client = TwitterClient(cookies={"auth_token": "test_auth", "ct0": "test_ct0"})
+    headers = client.get_base_headers()
+
+    # These headers mimic a real browser (from bird reference implementation)
+    assert headers["accept"] == "*/*"
+    assert headers["origin"] == "https://x.com"
+    assert headers["referer"] == "https://x.com/"
+    assert "user-agent" in headers

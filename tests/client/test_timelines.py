@@ -41,6 +41,19 @@ def test_build_likes_url_includes_features() -> None:
     assert "features" in url
 
 
+def test_build_likes_url_includes_required_variables() -> None:
+    """build_likes_url should include all required variables for the API."""
+    from tweethoarder.client.timelines import build_likes_url
+
+    url = build_likes_url(query_id="ABC123", user_id="12345")
+
+    # These variables are required by Twitter's API (from bird reference implementation)
+    assert "includePromotedContent" in url
+    assert "withClientEventToken" in url
+    assert "withBirdwatchNotes" in url
+    assert "withVoice" in url
+
+
 def test_fetch_likes_page_exists() -> None:
     """fetch_likes_page function should be importable."""
     from tweethoarder.client.timelines import fetch_likes_page
@@ -90,11 +103,12 @@ def test_parse_likes_response_extracts_tweets() -> None:
     """parse_likes_response should extract tweet entries from API response."""
     from tweethoarder.client.timelines import parse_likes_response
 
+    # Current Twitter API response format uses 'timeline' not 'timeline_v2'
     response = {
         "data": {
             "user": {
                 "result": {
-                    "timeline_v2": {
+                    "timeline": {
                         "timeline": {
                             "instructions": [
                                 {
@@ -134,11 +148,12 @@ def test_parse_likes_response_extracts_cursor() -> None:
     """parse_likes_response should extract the next cursor for pagination."""
     from tweethoarder.client.timelines import parse_likes_response
 
+    # Current Twitter API response format uses 'timeline' not 'timeline_v2'
     response = {
         "data": {
             "user": {
                 "result": {
-                    "timeline_v2": {
+                    "timeline": {
                         "timeline": {
                             "instructions": [
                                 {
@@ -171,13 +186,14 @@ def test_extract_tweet_data_returns_db_format() -> None:
     """extract_tweet_data should convert raw tweet to database format."""
     from tweethoarder.client.timelines import extract_tweet_data
 
+    # Current Twitter API response format has screen_name in user_result.core
     raw_tweet = {
         "rest_id": "123456789",
         "core": {
             "user_results": {
                 "result": {
                     "rest_id": "987654321",
-                    "legacy": {
+                    "core": {
                         "screen_name": "testuser",
                         "name": "Test User",
                     },
@@ -207,13 +223,14 @@ def test_extract_tweet_data_converts_date_to_iso8601() -> None:
     """extract_tweet_data should convert Twitter date format to ISO 8601."""
     from tweethoarder.client.timelines import extract_tweet_data
 
+    # Current Twitter API response format has screen_name in user_result.core
     raw_tweet = {
         "rest_id": "123",
         "core": {
             "user_results": {
                 "result": {
                     "rest_id": "456",
-                    "legacy": {"screen_name": "user", "name": "User"},
+                    "core": {"screen_name": "user", "name": "User"},
                 }
             }
         },
@@ -310,3 +327,82 @@ async def test_fetch_likes_page_raises_after_max_retries_exhausted() -> None:
         )
 
     assert mock_client.get.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_fetch_likes_page_calls_refresh_callback_on_404() -> None:
+    """fetch_likes_page should call on_query_id_refresh callback on 404."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    import httpx
+
+    from tweethoarder.client.timelines import fetch_likes_page
+
+    not_found_response = MagicMock()
+    not_found_response.status_code = 404
+    not_found_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Not found", request=MagicMock(), response=not_found_response
+    )
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"user": {"result": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [not_found_response, success_response]
+
+    refresh_callback = AsyncMock(return_value="NEW_QUERY_ID")
+
+    result = await fetch_likes_page(
+        client=mock_client,
+        query_id="OLD_QUERY_ID",
+        user_id="12345",
+        on_query_id_refresh=refresh_callback,
+    )
+
+    refresh_callback.assert_called_once()
+    assert mock_client.get.call_count == 2
+    assert "data" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_likes_page_retries_after_404_refresh_on_last_attempt() -> None:
+    """fetch_likes_page should retry with new query ID even if 404 happens on last attempt."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    import httpx
+
+    from tweethoarder.client.timelines import fetch_likes_page
+
+    not_found_response = MagicMock()
+    not_found_response.status_code = 404
+    not_found_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Not found", request=MagicMock(), response=not_found_response
+    )
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"user": {"result": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    # Only 1 retry allowed, 404 on that attempt triggers refresh, then success
+    mock_client.get.side_effect = [
+        not_found_response,  # Attempt 0 (only attempt with max_retries=1)
+        success_response,  # Retry with refreshed query ID should still work
+    ]
+
+    refresh_callback = AsyncMock(return_value="NEW_QUERY_ID")
+
+    result = await fetch_likes_page(
+        client=mock_client,
+        query_id="OLD_QUERY_ID",
+        user_id="12345",
+        max_retries=1,  # Only 1 attempt allowed
+        on_query_id_refresh=refresh_callback,
+    )
+
+    refresh_callback.assert_called_once()
+    assert mock_client.get.call_count == 2  # 1 attempt + 1 retry after refresh
+    assert "data" in result

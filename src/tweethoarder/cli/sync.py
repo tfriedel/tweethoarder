@@ -14,7 +14,9 @@ from tweethoarder.client.timelines import (
     parse_likes_response,
 )
 from tweethoarder.config import get_config_dir
+from tweethoarder.query_ids.scraper import refresh_query_ids
 from tweethoarder.query_ids.store import QueryIdStore, get_query_id_with_fallback
+from tweethoarder.storage.checkpoint import SyncCheckpoint
 from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
 
 app = typer.Typer(
@@ -57,12 +59,30 @@ async def sync_likes_async(db_path: Path, count: int | float) -> dict[str, Any]:
         raise ValueError("Could not determine user ID from cookies")
 
     synced_count = 0
-    cursor: str | None = None
     headers = client.get_base_headers()
 
+    # Load checkpoint for resume capability
+    checkpoint = SyncCheckpoint(db_path)
+    saved_checkpoint = checkpoint.load("like")
+    cursor: str | None = saved_checkpoint.cursor if saved_checkpoint else None
+    last_tweet_id: str | None = None
+
     async with httpx.AsyncClient(headers=headers) as http_client:
+
+        async def refresh_and_get_likes_id() -> str:
+            """Refresh query IDs and return the new Likes ID."""
+            new_ids: dict[str, str] = await refresh_query_ids(http_client, targets={"Likes"})
+            store.save(new_ids)
+            return new_ids["Likes"]
+
         while synced_count < count:
-            response = await fetch_likes_page(http_client, query_id, user_id, cursor)
+            response = await fetch_likes_page(
+                http_client,
+                query_id,
+                user_id,
+                cursor,
+                on_query_id_refresh=refresh_and_get_likes_id,
+            )
             tweets, cursor = parse_likes_response(response)
 
             if not tweets:
@@ -76,11 +96,18 @@ async def sync_likes_async(db_path: Path, count: int | float) -> dict[str, Any]:
                     continue
                 save_tweet(db_path, tweet_data)
                 add_to_collection(db_path, tweet_data["id"], "like")
+                last_tweet_id = tweet_data["id"]
                 synced_count += 1
+
+            # Save checkpoint after each page for resume capability
+            if cursor and last_tweet_id:
+                checkpoint.save("like", cursor=cursor, last_tweet_id=last_tweet_id)
 
             if not cursor:
                 break
 
+    # Clear checkpoint on successful completion
+    checkpoint.clear("like")
     return {"synced_count": synced_count}
 
 

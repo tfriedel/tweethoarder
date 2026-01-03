@@ -155,3 +155,17 @@ def test_get_query_id_with_fallback_uses_fallback_when_not_cached(
     result = get_query_id_with_fallback(store, "Bookmarks")
 
     assert result == "RV1g3b8n_SGOHwkqKYSCFw"
+
+
+def test_save_persists_query_ids_to_disk(tmp_path: Path) -> None:
+    """Save should write query IDs to cache file."""
+    from tweethoarder.query_ids.store import QueryIdStore
+
+    cache_path = tmp_path / "cache.json"
+    store = QueryIdStore(cache_path=cache_path)
+
+    store.save({"Bookmarks": "new_id_123", "Likes": "new_id_456"})
+
+    assert cache_path.exists()
+    assert store.get_query_id("Bookmarks") == "new_id_123"
+    assert store.get_query_id("Likes") == "new_id_456"

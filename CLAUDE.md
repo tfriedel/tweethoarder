@@ -16,6 +16,21 @@ This file contains the current design document including:
 
 Keep SPEC.md updated as the project evolves. When implementing features, verify your approach aligns with the spec. When making architectural decisions, update the spec to reflect them.
 
+## Twitter API Reference Implementation
+
+**The `~/projects/bird` directory contains a working TypeScript Twitter client** that serves as the reference implementation for API calls.
+
+When working on Twitter API issues (404 errors, missing features, header problems), consult these files:
+
+- `src/lib/twitter-client-base.ts` - Complete headers including `x-twitter-auth-type`, `x-twitter-active-user`, `user-agent`, `origin`, `referer`, etc.
+- `src/lib/twitter-client-features.ts` - All feature flag builders (`buildLikesFeatures`, `buildBookmarksFeatures`, etc.) with ~40 flags each
+- `src/lib/twitter-client-timelines.ts` - Working implementation of likes/bookmarks endpoints
+
+Key patterns from bird that must be ported to Python:
+- Headers need `x-twitter-auth-type: OAuth2Session`, `x-twitter-active-user: yes`, `x-twitter-client-language: en`
+- Feature flags need ~40 entries (not just 4) - use `buildTimelineFeatures()` as reference
+- Query IDs should have fallback lists for resilience
+
 ## Quick Start
 
 For new repository setup, use justfile:
