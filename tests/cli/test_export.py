@@ -57,6 +57,22 @@ def test_export_json_has_output_option() -> None:
     assert "--output" in strip_ansi(result.output)
 
 
+def test_export_json_writes_file(tmp_path: Path, monkeypatch: object) -> None:
+    """Export json command should write to file."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.json"
+    result = runner.invoke(
+        app, ["export", "json", "--collection", "likes", "--output", str(output_path)]
+    )
+
+    assert result.exit_code == 0
+    assert output_path.exists()
+    content = output_path.read_text()
+    assert "testuser" in content
+
+
 def test_export_markdown_command_exists() -> None:
     """Export markdown subcommand should be available."""
     result = runner.invoke(app, ["export", "markdown", "--help"])
