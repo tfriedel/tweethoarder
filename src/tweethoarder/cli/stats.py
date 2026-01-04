@@ -86,10 +86,26 @@ def show_stats() -> None:
     lines = [
         f"Likes: {collection_counts.get('like', 0):,} (last: {likes_time})",
         f"Bookmarks: {collection_counts.get('bookmark', 0):,} (last: {bookmarks_time})",
-        f"Tweets: {collection_counts.get('tweet', 0):,} (last: {tweets_time})",
-        f"Reposts: {collection_counts.get('repost', 0):,} (last: {reposts_time})",
-        f"Total Tweets: {total_tweets:,}",
-        f"Database: {db_size}",
     ]
+
+    # Add bookmark folder breakdown
+    if db_path.exists():
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.execute(
+                "SELECT bookmark_folder_name, COUNT(*) FROM collections "
+                "WHERE collection_type = 'bookmark' AND bookmark_folder_name IS NOT NULL "
+                "GROUP BY bookmark_folder_name"
+            )
+            for folder, count in cursor.fetchall():
+                lines.append(f"  - {folder}: {count:,}")
+
+    lines.extend(
+        [
+            f"Tweets: {collection_counts.get('tweet', 0):,} (last: {tweets_time})",
+            f"Reposts: {collection_counts.get('repost', 0):,} (last: {reposts_time})",
+            f"Total Tweets: {total_tweets:,}",
+            f"Database: {db_size}",
+        ]
+    )
 
     console.print(Panel("\n".join(lines), title="TweetHoarder Stats"))

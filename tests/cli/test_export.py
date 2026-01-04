@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from conftest import strip_ansi
 from typer.testing import CliRunner
 
@@ -419,3 +420,161 @@ def test_export_html_no_duplicate_server_rendering(tmp_path: Path, monkeypatch: 
     content = output_path.read_text()
     # Check that main container is empty (JS will populate it)
     assert '<main id="tweets">\n</main>' in content or '<main id="tweets"></main>' in content
+
+
+def test_export_json_has_folder_option() -> None:
+    """Export json command should have --folder option."""
+    result = runner.invoke(app, ["export", "json", "--help"])
+    assert result.exit_code == 0
+    assert "--folder" in strip_ansi(result.output)
+
+
+def test_export_json_folder_filters_bookmarks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Export json with --folder should only include bookmarks from that folder."""
+    import json
+    import sqlite3
+
+    from tweethoarder.storage.database import init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    # Create two tweets
+    save_tweet(
+        db_path,
+        {
+            "id": "work_tweet",
+            "text": "Work bookmark",
+            "author_id": "user1",
+            "author_username": "worker",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    save_tweet(
+        db_path,
+        {
+            "id": "personal_tweet",
+            "text": "Personal bookmark",
+            "author_id": "user2",
+            "author_username": "personal",
+            "created_at": "2025-01-01T13:00:00Z",
+        },
+    )
+
+    # Add to bookmarks with different folders
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO collections (tweet_id, collection_type, bookmark_folder_name, "
+            "added_at, synced_at) VALUES (?, ?, ?, ?, ?)",
+            ("work_tweet", "bookmark", "Work", "2025-01-01T12:00:00Z", "2025-01-01T12:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO collections (tweet_id, collection_type, bookmark_folder_name, "
+            "added_at, synced_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                "personal_tweet",
+                "bookmark",
+                "Personal",
+                "2025-01-01T13:00:00Z",
+                "2025-01-01T13:00:00Z",
+            ),
+        )
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.json"
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "json",
+            "--collection",
+            "bookmarks",
+            "--folder",
+            "Work",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    content = json.loads(output_path.read_text())
+    # Should only include the Work bookmark
+    assert len(content["tweets"]) == 1
+    assert content["tweets"][0]["id"] == "work_tweet"
+
+
+def test_export_markdown_has_folder_option() -> None:
+    """Export markdown command should have --folder option."""
+    result = runner.invoke(app, ["export", "markdown", "--help"])
+    assert result.exit_code == 0
+    assert "--folder" in strip_ansi(result.output)
+
+
+def test_export_csv_has_folder_option() -> None:
+    """Export csv command should have --folder option."""
+    result = runner.invoke(app, ["export", "csv", "--help"])
+    assert result.exit_code == 0
+    assert "--folder" in strip_ansi(result.output)
+
+
+def test_export_html_has_folder_option() -> None:
+    """Export html command should have --folder option."""
+    result = runner.invoke(app, ["export", "html", "--help"])
+    assert result.exit_code == 0
+    assert "--folder" in strip_ansi(result.output)
+
+
+def test_export_json_folder_ignored_for_non_bookmarks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Export json with --folder should be ignored when collection is not bookmarks."""
+    import json
+
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    # Create a liked tweet
+    save_tweet(
+        db_path,
+        {
+            "id": "liked_tweet",
+            "text": "A liked tweet",
+            "author_id": "user1",
+            "author_username": "liker",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "liked_tweet", "like")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.json"
+    # Using --folder with --collection likes should still export the like
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "json",
+            "--collection",
+            "likes",
+            "--folder",
+            "SomeFolder",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    content = json.loads(output_path.read_text())
+    # Should export the liked tweet (folder is ignored for non-bookmark collections)
+    assert len(content["tweets"]) == 1
+    assert content["tweets"][0]["id"] == "liked_tweet"
