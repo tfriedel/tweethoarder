@@ -527,3 +527,54 @@ def test_export_html_has_folder_option() -> None:
     result = runner.invoke(app, ["export", "html", "--help"])
     assert result.exit_code == 0
     assert "--folder" in strip_ansi(result.output)
+
+
+def test_export_json_folder_ignored_for_non_bookmarks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Export json with --folder should be ignored when collection is not bookmarks."""
+    import json
+
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    # Create a liked tweet
+    save_tweet(
+        db_path,
+        {
+            "id": "liked_tweet",
+            "text": "A liked tweet",
+            "author_id": "user1",
+            "author_username": "liker",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "liked_tweet", "like")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.json"
+    # Using --folder with --collection likes should still export the like
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "json",
+            "--collection",
+            "likes",
+            "--folder",
+            "SomeFolder",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    content = json.loads(output_path.read_text())
+    # Should export the liked tweet (folder is ignored for non-bookmark collections)
+    assert len(content["tweets"]) == 1
+    assert content["tweets"][0]["id"] == "liked_tweet"

@@ -174,6 +174,6 @@ def test_stats_shows_bookmark_folder_breakdown(stats_db: Path) -> None:
 
     result = runner.invoke(app, ["stats"])
     assert result.exit_code == 0
-    # Should show folder breakdown
-    assert "Work" in result.output
-    assert "Personal" in result.output
+    # Should show folder breakdown with correct counts
+    assert "- Work: 2" in result.output
+    assert "- Personal: 1" in result.output
