@@ -339,7 +339,9 @@ def html(
         "        return `<img src='${url}' "
         "style='max-width:100%;border-radius:8px;margin-top:8px'>`;",
         "      }",
-        "      return `<div class='media-placeholder' data-src='${url}'>"
+        "      return `<div class='media-placeholder' data-src='${url}' "
+        'onclick=\'this.outerHTML=\\`<img src="${url}" '
+        'style="max-width:100%;border-radius:8px;margin-top:8px">\\`\'>'
         "Click to load image</div>`;",
         "    }).join('');",
         "  } catch (e) { return ''; }",
@@ -416,6 +418,13 @@ def html(
         "document.addEventListener('DOMContentLoaded', () => {",
         "  const search = document.getElementById('search');",
         "  search.addEventListener('input', () => renderTweets(filterTweets(search.value)));",
+        "  const loadBtn = document.getElementById('load-images');",
+        "  loadBtn.addEventListener('click', () => {",
+        "    imagesEnabled = true;",
+        "    loadBtn.disabled = true;",
+        "    loadBtn.textContent = 'Images Enabled';",
+        "    renderTweets(filterTweets(search.value));",
+        "  });",
         "  renderTweets(TWEETS);",
         "});",
         "</script>",

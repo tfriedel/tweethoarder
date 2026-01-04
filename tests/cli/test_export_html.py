@@ -279,6 +279,17 @@ def test_html_export_image_toggle(tmp_path: Path) -> None:
         assert "media_json" in content
         assert "renderMedia" in content or "t.media_json" in content
 
+        # Load Images button should have event listener that sets imagesEnabled
+        assert "load-images" in content
+        assert (
+            "loadBtn.addEventListener" in content
+            or "getElementById('load-images').addEventListener" in content
+        )
+
+        # Media placeholders should be clickable to load individual images
+        assert "media-placeholder" in content
+        assert "onclick=" in content  # inline click handler on placeholder
+
 
 def test_html_export_renders_media_in_template(tmp_path: Path) -> None:
     """HTML export should call renderMedia in the tweet template."""

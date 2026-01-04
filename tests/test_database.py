@@ -581,6 +581,36 @@ def test_save_tweet_stores_urls_json(tmp_path: Path) -> None:
     assert "example.com" in row[0]
 
 
+def test_save_tweet_stores_media_json(tmp_path: Path) -> None:
+    """save_tweet should store media_json field."""
+    from tweethoarder.storage.database import init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "123",
+            "text": "Check this photo",
+            "author_id": "456",
+            "author_username": "user",
+            "created_at": "2025-01-01T12:00:00Z",
+            "media_json": '[{"type": "photo", "media_url_https": "https://pbs.twimg.com/img.jpg"}]',
+        },
+    )
+
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("SELECT media_json FROM tweets WHERE id = ?", ("123",))
+    row = cursor.fetchone()
+    conn.close()
+
+    assert row[0] is not None
+    assert "pbs.twimg.com" in row[0]
+
+
 def test_get_tweets_by_conversation_id_returns_matching_tweets(tmp_path: Path) -> None:
     """get_tweets_by_conversation_id returns tweets with matching conversation_id."""
     from tweethoarder.storage.database import (

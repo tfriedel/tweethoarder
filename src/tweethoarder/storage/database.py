@@ -155,9 +155,9 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
             INSERT INTO tweets (
                 id, text, author_id, author_username, author_display_name,
                 author_avatar_url, created_at, conversation_id, reply_count,
-                retweet_count, like_count, quote_count, urls_json, raw_json,
+                retweet_count, like_count, quote_count, urls_json, media_json, raw_json,
                 first_seen_at, last_updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 text = excluded.text,
                 author_id = excluded.author_id,
@@ -171,6 +171,7 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
                 like_count = excluded.like_count,
                 quote_count = excluded.quote_count,
                 urls_json = COALESCE(excluded.urls_json, tweets.urls_json),
+                media_json = COALESCE(excluded.media_json, tweets.media_json),
                 raw_json = COALESCE(excluded.raw_json, tweets.raw_json),
                 last_updated_at = excluded.last_updated_at
             """,
@@ -188,6 +189,7 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
                 tweet_data.get("like_count", 0),
                 tweet_data.get("quote_count", 0),
                 tweet_data.get("urls_json"),
+                tweet_data.get("media_json"),
                 tweet_data.get("raw_json"),
                 now,
                 now,
