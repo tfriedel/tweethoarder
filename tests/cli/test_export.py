@@ -322,3 +322,87 @@ def test_export_html_has_responsive_layout(tmp_path: Path, monkeypatch: object) 
 
     content = output_path.read_text()
     assert "display:" in content or "@media" in content or "flex" in content
+
+
+def test_export_html_media_facets_are_mutually_exclusive(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    """Media facet counts should not double-count tweets with both media and URLs."""
+    import sqlite3
+
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    # Save tweet first
+    save_tweet(
+        db_path,
+        {
+            "id": "tweet_with_both",
+            "text": "Photo and link",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    # Manually update media_json and urls_json (save_tweet doesn't support these yet)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE tweets SET media_json = ?, urls_json = ? WHERE id = ?",
+            ('[{"type": "photo"}]', '[{"url": "https://example.com"}]', "tweet_with_both"),
+        )
+    add_to_collection(db_path, "tweet_with_both", "like")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    # Parse FACETS from the HTML
+    import json
+    import re
+
+    facets_match = re.search(r"const FACETS = ({.*?});", content)
+    assert facets_match is not None
+    facets = json.loads(facets_match.group(1))
+    media = facets["media"]
+    # Total should equal 1 (not 2 from double-counting)
+    total = media["photo"] + media["video"] + media["link"] + media["text_only"]
+    assert total == 1, f"Expected 1 tweet counted once, got {total} counts"
+
+
+def test_export_html_escapes_special_chars_in_render(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should escape HTML special chars to prevent XSS."""
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    # Tweet with HTML/script content
+    save_tweet(
+        db_path,
+        {
+            "id": "xss_tweet",
+            "text": "<script>alert('xss')</script>",
+            "author_id": "attacker",
+            "author_username": "evil<script>user",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "xss_tweet", "like")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    # The render function should use escapeHtml or textContent, not raw innerHTML
+    # Check that the JavaScript uses a safe rendering method
+    assert "escapeHtml" in content or "textContent" in content or "createTextNode" in content

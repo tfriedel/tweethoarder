@@ -350,3 +350,62 @@ def test_get_db_path_exists() -> None:
     from tweethoarder.storage.database import get_db_path
 
     assert callable(get_db_path)
+
+
+def test_get_tweets_by_bookmark_folder_filters_by_folder(tmp_path: Path) -> None:
+    """get_tweets_by_bookmark_folder should filter bookmarks by folder name."""
+    from tweethoarder.storage.database import (
+        get_tweets_by_bookmark_folder,
+        init_database,
+        save_tweet,
+    )
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Create tweets
+    save_tweet(
+        db_path,
+        {
+            "id": "1",
+            "text": "Tweet 1",
+            "author_id": "100",
+            "author_username": "user1",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    save_tweet(
+        db_path,
+        {
+            "id": "2",
+            "text": "Tweet 2",
+            "author_id": "100",
+            "author_username": "user1",
+            "created_at": "2025-01-02T12:00:00Z",
+        },
+    )
+
+    # Add to bookmarks with different folders
+    insert_sql = """
+        INSERT INTO collections (
+            tweet_id, collection_type, bookmark_folder_name, added_at, synced_at
+        ) VALUES (?, ?, ?, ?, ?)
+    """
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        insert_sql,
+        ("1", "bookmark", "Work", "2025-01-01T12:00:00Z", "2025-01-01T12:00:00Z"),
+    )
+    conn.execute(
+        insert_sql,
+        ("2", "bookmark", "Personal", "2025-01-02T12:00:00Z", "2025-01-02T12:00:00Z"),
+    )
+    conn.commit()
+    conn.close()
+
+    # Filter by folder
+    tweets = get_tweets_by_bookmark_folder(db_path, "Work")
+
+    assert len(tweets) == 1
+    assert tweets[0]["id"] == "1"
+    assert tweets[0]["text"] == "Tweet 1"

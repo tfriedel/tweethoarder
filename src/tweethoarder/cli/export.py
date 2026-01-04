@@ -18,6 +18,11 @@ def json(
         "--collection",
         help="Filter by collection type (likes, bookmarks, tweets, reposts).",
     ),
+    folder: str | None = typer.Option(
+        None,
+        "--folder",
+        help="Filter bookmarks by folder name (only works with --collection bookmarks).",
+    ),
     output: Path | None = typer.Option(
         None,
         "--output",
@@ -29,16 +34,24 @@ def json(
 
     from tweethoarder.config import get_data_dir
     from tweethoarder.export.json_export import export_tweets_to_json
-    from tweethoarder.storage.database import get_all_tweets, get_tweets_by_collection
+    from tweethoarder.storage.database import (
+        get_all_tweets,
+        get_tweets_by_bookmark_folder,
+        get_tweets_by_collection,
+    )
 
     data_dir = get_data_dir()
     db_path = data_dir / "tweethoarder.db"
     collection_type = COLLECTION_MAP.get(collection, collection) if collection else None
-    tweets: list[dict[str, Any]] = (
-        get_tweets_by_collection(db_path, collection_type)
-        if collection_type
-        else get_all_tweets(db_path)
-    )
+
+    tweets: list[dict[str, Any]]
+    if folder and collection_type == "bookmark":
+        tweets = get_tweets_by_bookmark_folder(db_path, folder)
+    elif collection_type:
+        tweets = get_tweets_by_collection(db_path, collection_type)
+    else:
+        tweets = get_all_tweets(db_path)
+
     result = export_tweets_to_json(tweets, collection=collection)
     content = json_lib.dumps(result, indent=2, ensure_ascii=False)
 
@@ -73,6 +86,11 @@ def markdown(
         "--collection",
         help="Filter by collection type (likes, bookmarks, tweets, reposts).",
     ),
+    folder: str | None = typer.Option(
+        None,
+        "--folder",
+        help="Filter bookmarks by folder name (only works with --collection bookmarks).",
+    ),
     output: Path | None = typer.Option(
         None,
         "--output",
@@ -82,16 +100,24 @@ def markdown(
     """Export tweets to Markdown format."""
     from tweethoarder.config import get_data_dir
     from tweethoarder.export.markdown_export import export_tweets_to_markdown
-    from tweethoarder.storage.database import get_all_tweets, get_tweets_by_collection
+    from tweethoarder.storage.database import (
+        get_all_tweets,
+        get_tweets_by_bookmark_folder,
+        get_tweets_by_collection,
+    )
 
     data_dir = get_data_dir()
     db_path = data_dir / "tweethoarder.db"
     collection_type = COLLECTION_MAP.get(collection, collection) if collection else None
-    tweets: list[dict[str, Any]] = (
-        get_tweets_by_collection(db_path, collection_type)
-        if collection_type
-        else get_all_tweets(db_path)
-    )
+
+    tweets: list[dict[str, Any]]
+    if folder and collection_type == "bookmark":
+        tweets = get_tweets_by_bookmark_folder(db_path, folder)
+    elif collection_type:
+        tweets = get_tweets_by_collection(db_path, collection_type)
+    else:
+        tweets = get_all_tweets(db_path)
+
     content = export_tweets_to_markdown(tweets, collection=collection)
 
     output_path = output or _get_default_export_path(data_dir, collection, "md")
@@ -105,6 +131,11 @@ def csv(
         "--collection",
         help="Filter by collection type (likes, bookmarks, tweets, reposts).",
     ),
+    folder: str | None = typer.Option(
+        None,
+        "--folder",
+        help="Filter bookmarks by folder name (only works with --collection bookmarks).",
+    ),
     output: Path | None = typer.Option(
         None,
         "--output",
@@ -114,16 +145,24 @@ def csv(
     """Export tweets to CSV format."""
     from tweethoarder.config import get_data_dir
     from tweethoarder.export.csv_export import export_tweets_to_csv
-    from tweethoarder.storage.database import get_all_tweets, get_tweets_by_collection
+    from tweethoarder.storage.database import (
+        get_all_tweets,
+        get_tweets_by_bookmark_folder,
+        get_tweets_by_collection,
+    )
 
     data_dir = get_data_dir()
     db_path = data_dir / "tweethoarder.db"
     collection_type = COLLECTION_MAP.get(collection, collection) if collection else None
-    tweets: list[dict[str, Any]] = (
-        get_tweets_by_collection(db_path, collection_type)
-        if collection_type
-        else get_all_tweets(db_path)
-    )
+
+    tweets: list[dict[str, Any]]
+    if folder and collection_type == "bookmark":
+        tweets = get_tweets_by_bookmark_folder(db_path, folder)
+    elif collection_type:
+        tweets = get_tweets_by_collection(db_path, collection_type)
+    else:
+        tweets = get_all_tweets(db_path)
+
     content = export_tweets_to_csv(tweets)
 
     output_path = output or _get_default_export_path(data_dir, collection, "csv")
@@ -137,6 +176,11 @@ def html(
         "--collection",
         help="Filter by collection type (likes, bookmarks, tweets, reposts).",
     ),
+    folder: str | None = typer.Option(
+        None,
+        "--folder",
+        help="Filter bookmarks by folder name (only works with --collection bookmarks).",
+    ),
     output: Path | None = typer.Option(
         None,
         "--output",
@@ -145,16 +189,23 @@ def html(
 ) -> None:
     """Export tweets to HTML format."""
     from tweethoarder.config import get_data_dir
-    from tweethoarder.storage.database import get_all_tweets, get_tweets_by_collection
+    from tweethoarder.storage.database import (
+        get_all_tweets,
+        get_tweets_by_bookmark_folder,
+        get_tweets_by_collection,
+    )
 
     data_dir = get_data_dir()
     db_path = data_dir / "tweethoarder.db"
     collection_type = COLLECTION_MAP.get(collection, collection) if collection else None
-    tweets: list[dict[str, Any]] = (
-        get_tweets_by_collection(db_path, collection_type)
-        if collection_type
-        else get_all_tweets(db_path)
-    )
+
+    tweets: list[dict[str, Any]]
+    if folder and collection_type == "bookmark":
+        tweets = get_tweets_by_bookmark_folder(db_path, folder)
+    elif collection_type:
+        tweets = get_tweets_by_collection(db_path, collection_type)
+    else:
+        tweets = get_all_tweets(db_path)
 
     import json
     from collections import Counter
@@ -185,7 +236,7 @@ def html(
                 media_counts["video"] += 1
             else:
                 media_counts["photo"] += 1
-        if urls_json:
+        elif urls_json:
             has_media = True
             media_counts["link"] += 1
         if not has_media:
