@@ -423,6 +423,327 @@ def test_extract_tweet_data_converts_date_to_iso8601() -> None:
     assert result["created_at"] == "2025-01-01T12:00:00+00:00"
 
 
+def test_extract_tweet_data_extracts_in_reply_to_tweet_id() -> None:
+    """extract_tweet_data should extract in_reply_to_tweet_id from replies."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "core": {"screen_name": "user", "name": "User"},
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "This is a reply",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "100",
+            "in_reply_to_status_id_str": "999",
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert result["in_reply_to_tweet_id"] == "999"
+
+
+def test_extract_tweet_data_extracts_in_reply_to_user_id() -> None:
+    """extract_tweet_data should extract in_reply_to_user_id from replies."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "core": {"screen_name": "user", "name": "User"},
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "This is a reply",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "100",
+            "in_reply_to_user_id_str": "888",
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert result["in_reply_to_user_id"] == "888"
+
+
+def test_extract_tweet_data_extracts_quoted_tweet_id() -> None:
+    """extract_tweet_data should extract quoted_tweet_id from quote tweets."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "core": {"screen_name": "user", "name": "User"},
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "This is a quote tweet",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123",
+            "quoted_status_id_str": "777",
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert result["quoted_tweet_id"] == "777"
+
+
+def test_extract_tweet_data_extracts_is_retweet() -> None:
+    """extract_tweet_data should extract is_retweet flag for retweets."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "core": {"screen_name": "user", "name": "User"},
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "RT @other: Original tweet",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123",
+            "retweeted_status_result": {
+                "result": {"rest_id": "555"},
+            },
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert result["is_retweet"] is True
+
+
+def test_extract_tweet_data_extracts_retweeted_tweet_id() -> None:
+    """extract_tweet_data should extract retweeted_tweet_id for retweets."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "core": {"screen_name": "user", "name": "User"},
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "RT @other: Original tweet",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123",
+            "retweeted_status_result": {
+                "result": {"rest_id": "555"},
+            },
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert result["retweeted_tweet_id"] == "555"
+
+
+def test_extract_tweet_data_extracts_urls_json() -> None:
+    """extract_tweet_data should extract urls from entities."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "core": {"screen_name": "user", "name": "User"},
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "Check this out https://t.co/abc123",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123",
+            "entities": {
+                "urls": [
+                    {
+                        "url": "https://t.co/abc123",
+                        "expanded_url": "https://example.com/page",
+                        "display_url": "example.com/page",
+                    }
+                ]
+            },
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert result["urls_json"] is not None
+    import json
+
+    urls = json.loads(result["urls_json"])
+    assert len(urls) == 1
+    assert urls[0]["expanded_url"] == "https://example.com/page"
+
+
+def test_extract_tweet_data_extracts_media_json() -> None:
+    """extract_tweet_data should extract media from extended_entities."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "core": {"screen_name": "user", "name": "User"},
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "Check this image",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123",
+            "extended_entities": {
+                "media": [
+                    {
+                        "type": "photo",
+                        "media_url_https": "https://pbs.twimg.com/media/xyz.jpg",
+                    }
+                ]
+            },
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert result["media_json"] is not None
+    import json
+
+    media = json.loads(result["media_json"])
+    assert len(media) == 1
+    assert media[0]["type"] == "photo"
+
+
+def test_extract_tweet_data_extracts_hashtags_json() -> None:
+    """extract_tweet_data should extract hashtags from entities."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "core": {"screen_name": "user", "name": "User"},
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "Hello #python #tdd",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123",
+            "entities": {
+                "hashtags": [
+                    {"text": "python", "indices": [6, 13]},
+                    {"text": "tdd", "indices": [14, 18]},
+                ]
+            },
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert result["hashtags_json"] is not None
+    import json
+
+    hashtags = json.loads(result["hashtags_json"])
+    assert len(hashtags) == 2
+    assert hashtags[0]["text"] == "python"
+
+
+def test_extract_tweet_data_extracts_mentions_json() -> None:
+    """extract_tweet_data should extract user_mentions from entities."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "core": {"screen_name": "user", "name": "User"},
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "Hello @alice @bob",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123",
+            "entities": {
+                "user_mentions": [
+                    {"screen_name": "alice", "id_str": "111"},
+                    {"screen_name": "bob", "id_str": "222"},
+                ]
+            },
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert result["mentions_json"] is not None
+    import json
+
+    mentions = json.loads(result["mentions_json"])
+    assert len(mentions) == 2
+    assert mentions[0]["screen_name"] == "alice"
+
+
+def test_extract_tweet_data_extracts_author_avatar_url() -> None:
+    """extract_tweet_data should extract author avatar URL from user legacy."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "core": {"screen_name": "user", "name": "User"},
+                    "legacy": {
+                        "profile_image_url_https": "https://pbs.twimg.com/profile/abc.jpg",
+                    },
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "Test tweet",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123",
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert result["author_avatar_url"] == "https://pbs.twimg.com/profile/abc.jpg"
+
+
 @pytest.mark.asyncio
 async def test_fetch_likes_page_retries_on_rate_limit() -> None:
     """fetch_likes_page should retry with backoff on 429 rate limit."""
@@ -641,6 +962,29 @@ def test_build_tweet_detail_url_includes_tweet_id() -> None:
     assert "123456789" in url
 
 
+def test_build_tweet_detail_url_includes_features() -> None:
+    """build_tweet_detail_url should include features parameter like other endpoints."""
+    from tweethoarder.client.timelines import build_tweet_detail_url
+
+    url = build_tweet_detail_url(query_id="DETAIL123", tweet_id="123456789")
+
+    assert "features" in url
+
+
+def test_build_tweet_detail_url_includes_required_variables() -> None:
+    """build_tweet_detail_url should include all required variables from bird reference."""
+    from tweethoarder.client.timelines import build_tweet_detail_url
+
+    url = build_tweet_detail_url(query_id="DETAIL123", tweet_id="123456789")
+
+    # These variables are required by the TweetDetail endpoint (from bird reference)
+    assert "focalTweetId" in url
+    assert "withCommunity" in url
+    assert "withVoice" in url
+    assert "withBirdwatchNotes" in url
+    assert "includePromotedContent" in url
+
+
 def test_fetch_tweet_detail_page_exists() -> None:
     """fetch_tweet_detail_page function should be importable."""
     from tweethoarder.client.timelines import fetch_tweet_detail_page
@@ -714,6 +1058,76 @@ def test_parse_tweet_detail_response_extracts_tweets() -> None:
 
     assert len(tweets) == 1
     assert tweets[0]["rest_id"] == "123"
+
+
+def test_parse_tweet_detail_response_extracts_conversationthread_tweets() -> None:
+    """parse_tweet_detail_response should extract tweets from conversationthread entries."""
+    from tweethoarder.client.timelines import parse_tweet_detail_response
+
+    response = {
+        "data": {
+            "threaded_conversation_with_injections_v2": {
+                "instructions": [
+                    {
+                        "type": "TimelineAddEntries",
+                        "entries": [
+                            {
+                                "entryId": "tweet-123",
+                                "content": {
+                                    "itemContent": {
+                                        "tweet_results": {
+                                            "result": {
+                                                "rest_id": "123",
+                                                "legacy": {"full_text": "Root tweet"},
+                                            }
+                                        }
+                                    }
+                                },
+                            },
+                            {
+                                "entryId": "conversationthread-456",
+                                "content": {
+                                    "items": [
+                                        {
+                                            "item": {
+                                                "itemContent": {
+                                                    "tweet_results": {
+                                                        "result": {
+                                                            "rest_id": "456",
+                                                            "legacy": {"full_text": "Reply 1"},
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "item": {
+                                                "itemContent": {
+                                                    "tweet_results": {
+                                                        "result": {
+                                                            "rest_id": "789",
+                                                            "legacy": {"full_text": "Reply 2"},
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                    ]
+                                },
+                            },
+                        ],
+                    }
+                ]
+            }
+        }
+    }
+
+    tweets = parse_tweet_detail_response(response)
+
+    assert len(tweets) == 3
+    assert tweets[0]["rest_id"] == "123"
+    assert tweets[1]["rest_id"] == "456"
+    assert tweets[2]["rest_id"] == "789"
 
 
 def test_get_focal_tweet_author_id_exists() -> None:
@@ -799,3 +1213,34 @@ def test_filter_tweets_by_mode_conversation_keeps_all() -> None:
     filtered = filter_tweets_by_mode(tweets, "conversation", "author1")
 
     assert len(filtered) == 2
+
+
+def test_extract_tweet_data_uses_note_tweet_for_long_text() -> None:
+    """extract_tweet_data should use note_tweet text when available for long tweets."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "core": {"screen_name": "user", "name": "User"},
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "This is truncated text that ends abruptly",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123",
+        },
+        "note_tweet": {
+            "note_tweet_results": {
+                "result": {"text": "This is the full text that includes everything"}
+            }
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert "full text that includes everything" in result["text"]

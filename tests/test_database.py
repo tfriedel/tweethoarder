@@ -451,6 +451,47 @@ def test_collections_table_has_sort_index_column(tmp_path: Path) -> None:
     assert "sort_index" in columns
 
 
+def test_tweets_table_has_author_avatar_url_column(tmp_path: Path) -> None:
+    """Tweets table should have author_avatar_url column."""
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("PRAGMA table_info(tweets)")
+    columns = {row[1] for row in cursor.fetchall()}
+    conn.close()
+
+    assert "author_avatar_url" in columns
+
+
+def test_save_tweet_stores_author_avatar_url(tmp_path: Path) -> None:
+    """save_tweet should store author_avatar_url in the database."""
+    from tweethoarder.storage.database import init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    tweet_data = {
+        "id": "123456789",
+        "text": "Hello!",
+        "author_id": "987654321",
+        "author_username": "testuser",
+        "author_avatar_url": "https://pbs.twimg.com/profile/abc.jpg",
+        "created_at": "2025-01-01T12:00:00Z",
+    }
+    save_tweet(db_path, tweet_data)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("SELECT author_avatar_url FROM tweets WHERE id = ?", ("123456789",))
+    row = cursor.fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] == "https://pbs.twimg.com/profile/abc.jpg"
+
+
 def test_get_tweets_by_bookmark_folder_filters_by_folder(tmp_path: Path) -> None:
     """get_tweets_by_bookmark_folder should filter bookmarks by folder name."""
     from tweethoarder.storage.database import (
@@ -508,3 +549,87 @@ def test_get_tweets_by_bookmark_folder_filters_by_folder(tmp_path: Path) -> None
     assert len(tweets) == 1
     assert tweets[0]["id"] == "1"
     assert tweets[0]["text"] == "Tweet 1"
+
+
+def test_save_tweet_stores_urls_json(tmp_path: Path) -> None:
+    """save_tweet should store urls_json field."""
+    from tweethoarder.storage.database import init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "123",
+            "text": "Check this https://t.co/abc",
+            "author_id": "456",
+            "author_username": "user",
+            "created_at": "2025-01-01T12:00:00Z",
+            "urls_json": '[{"url": "https://t.co/abc", "expanded_url": "https://example.com"}]',
+        },
+    )
+
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("SELECT urls_json FROM tweets WHERE id = ?", ("123",))
+    row = cursor.fetchone()
+    conn.close()
+
+    assert row[0] is not None
+    assert "example.com" in row[0]
+
+
+def test_get_tweets_by_conversation_id_returns_matching_tweets(tmp_path: Path) -> None:
+    """get_tweets_by_conversation_id returns tweets with matching conversation_id."""
+    from tweethoarder.storage.database import (
+        get_tweets_by_conversation_id,
+        init_database,
+        save_tweet,
+    )
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Thread tweets with same conversation_id
+    save_tweet(
+        db_path,
+        {
+            "id": "123",
+            "text": "First tweet in thread",
+            "author_id": "100",
+            "author_username": "user1",
+            "created_at": "2025-01-01T12:00:00Z",
+            "conversation_id": "123",
+        },
+    )
+    save_tweet(
+        db_path,
+        {
+            "id": "456",
+            "text": "Second tweet in thread",
+            "author_id": "100",
+            "author_username": "user1",
+            "created_at": "2025-01-01T12:01:00Z",
+            "conversation_id": "123",
+        },
+    )
+    # Different conversation
+    save_tweet(
+        db_path,
+        {
+            "id": "789",
+            "text": "Unrelated tweet",
+            "author_id": "200",
+            "author_username": "user2",
+            "created_at": "2025-01-01T12:02:00Z",
+            "conversation_id": "789",
+        },
+    )
+
+    tweets = get_tweets_by_conversation_id(db_path, "123")
+
+    assert len(tweets) == 2
+    assert tweets[0]["id"] == "123"
+    assert tweets[1]["id"] == "456"

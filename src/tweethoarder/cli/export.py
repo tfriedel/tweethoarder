@@ -104,6 +104,7 @@ def markdown(
         get_all_tweets,
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
+        get_tweets_by_conversation_id,
     )
 
     data_dir = get_data_dir()
@@ -118,7 +119,16 @@ def markdown(
     else:
         tweets = get_all_tweets(db_path)
 
-    content = export_tweets_to_markdown(tweets, collection=collection)
+    # Build thread context for tweets with conversation_id
+    thread_context: dict[str, list[dict[str, Any]]] = {}
+    for tweet in tweets:
+        conv_id = tweet.get("conversation_id")
+        if conv_id and conv_id not in thread_context:
+            thread_context[conv_id] = get_tweets_by_conversation_id(db_path, conv_id)
+
+    content = export_tweets_to_markdown(
+        tweets, collection=collection, thread_context=thread_context
+    )
 
     output_path = output or _get_default_export_path(data_dir, collection, "md")
     output_path.write_text(content)
@@ -269,15 +279,35 @@ def html(
         "  div.textContent = s;",
         "  return div.innerHTML;",
         "}",
+        "function expandUrls(text, urlsJson) {",
+        "  if (!urlsJson) return text;",
+        "  try {",
+        "    const urls = JSON.parse(urlsJson);",
+        "    urls.forEach(u => { text = text.replace(u.url, u.expanded_url); });",
+        "  } catch (e) {}",
+        "  return text;",
+        "}",
         "function filterTweets(query) {",
         "  return TWEETS.filter(t => "
         "!query || t.text.toLowerCase().includes(query.toLowerCase()));",
         "}",
         "function renderTweets(tweets) {",
         "  const container = document.getElementById('tweets');",
-        "  container.innerHTML = tweets.map(t => "
-        "`<article><p>@${escapeHtml(t.author_username)}: "
-        "${escapeHtml(t.text)}</p></article>`).join('');",
+        "  container.innerHTML = tweets.map(t => {",
+        "    const dn = t.author_display_name || t.author_username;",
+        "    const dt = t.created_at ? new Date(t.created_at).toLocaleString() : '';",
+        "    const url = `https://x.com/${t.author_username}/status/${t.id}`;",
+        "    const txt = expandUrls(t.text, t.urls_json);",
+        "    const av = t.author_avatar_url",
+        '      ? `<img src="${t.author_avatar_url}" alt="" width="48" height="48">`',
+        "      : '';",
+        "    return `<article>",
+        "      ${av}",
+        "      <p><strong>${escapeHtml(dn)}</strong> @${escapeHtml(t.author_username)}</p>",
+        "      <p>${escapeHtml(txt)}</p>",
+        '      <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',
+        "    </article>`;",
+        "  }).join('');",
         "}",
         "document.addEventListener('DOMContentLoaded', () => {",
         "  const search = document.getElementById('search');",

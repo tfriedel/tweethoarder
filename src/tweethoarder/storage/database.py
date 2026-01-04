@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS tweets (
     author_id TEXT NOT NULL,
     author_username TEXT NOT NULL,
     author_display_name TEXT,
+    author_avatar_url TEXT,
     created_at TEXT NOT NULL,
     conversation_id TEXT,
     in_reply_to_tweet_id TEXT,
@@ -153,20 +154,24 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
             """
             INSERT INTO tweets (
                 id, text, author_id, author_username, author_display_name,
-                created_at, conversation_id, reply_count, retweet_count,
-                like_count, quote_count, first_seen_at, last_updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                author_avatar_url, created_at, conversation_id, reply_count,
+                retweet_count, like_count, quote_count, urls_json, raw_json,
+                first_seen_at, last_updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 text = excluded.text,
                 author_id = excluded.author_id,
                 author_username = excluded.author_username,
                 author_display_name = excluded.author_display_name,
+                author_avatar_url = excluded.author_avatar_url,
                 created_at = excluded.created_at,
                 conversation_id = excluded.conversation_id,
                 reply_count = excluded.reply_count,
                 retweet_count = excluded.retweet_count,
                 like_count = excluded.like_count,
                 quote_count = excluded.quote_count,
+                urls_json = COALESCE(excluded.urls_json, tweets.urls_json),
+                raw_json = COALESCE(excluded.raw_json, tweets.raw_json),
                 last_updated_at = excluded.last_updated_at
             """,
             (
@@ -175,12 +180,15 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
                 tweet_data["author_id"],
                 tweet_data["author_username"],
                 tweet_data.get("author_display_name"),
+                tweet_data.get("author_avatar_url"),
                 tweet_data["created_at"],
                 tweet_data.get("conversation_id"),
                 tweet_data.get("reply_count", 0),
                 tweet_data.get("retweet_count", 0),
                 tweet_data.get("like_count", 0),
                 tweet_data.get("quote_count", 0),
+                tweet_data.get("urls_json"),
+                tweet_data.get("raw_json"),
                 now,
                 now,
             ),
@@ -287,5 +295,20 @@ def get_tweets_by_bookmark_folder(db_path: Path, folder_name: str) -> list[dict[
             ORDER BY c.added_at DESC
             """,
             (folder_name,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_tweets_by_conversation_id(db_path: Path, conversation_id: str) -> list[dict[str, Any]]:
+    """Get all tweets in a conversation."""
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(
+            """
+            SELECT * FROM tweets
+            WHERE conversation_id = ?
+            ORDER BY created_at ASC
+            """,
+            (conversation_id,),
         )
         return [dict(row) for row in cursor.fetchall()]

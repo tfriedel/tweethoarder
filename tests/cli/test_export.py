@@ -529,6 +529,92 @@ def test_export_html_has_folder_option() -> None:
     assert "--folder" in strip_ansi(result.output)
 
 
+def test_export_html_includes_view_on_twitter_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Export html should include a View on Twitter link in the render function."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    # The render function should include a link to x.com/username/status/id
+    assert "x.com" in content or "twitter.com" in content
+
+
+def test_export_html_renders_author_display_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Export html renderTweets should use author display name."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    # The render function should use t.author_display_name in the template
+    assert "t.author_display_name" in content
+
+
+def test_export_html_renders_created_at(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Export html renderTweets should display created_at date."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    # The render function should use t.created_at in the template
+    assert "t.created_at" in content
+
+
+def test_export_html_has_expand_urls_function(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Export html should include a function to expand t.co URLs."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    # Should have an expandUrls function that uses urls_json
+    assert "function expandUrls" in content
+
+
+def test_export_html_render_uses_expand_urls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Export html renderTweets should call expandUrls on tweet text."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    # Render should call expandUrls with text and urls_json
+    assert "expandUrls(t.text, t.urls_json)" in content
+
+
+def test_export_html_renders_author_avatar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Export html renderTweets should display author avatar if available."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    # Render should reference author_avatar_url
+    assert "t.author_avatar_url" in content
+
+
 def test_export_json_folder_ignored_for_non_bookmarks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -578,3 +664,70 @@ def test_export_json_folder_ignored_for_non_bookmarks(
     # Should export the liked tweet (folder is ignored for non-bookmark collections)
     assert len(content["tweets"]) == 1
     assert content["tweets"][0]["id"] == "liked_tweet"
+
+
+def test_export_markdown_includes_thread_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Export markdown should include thread context when available."""
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    # Create a thread with 3 tweets
+    save_tweet(
+        db_path,
+        {
+            "id": "100",
+            "text": "1/ First in thread",
+            "author_id": "user1",
+            "author_username": "threadauthor",
+            "created_at": "2025-01-01T12:00:00Z",
+            "conversation_id": "100",
+        },
+    )
+    save_tweet(
+        db_path,
+        {
+            "id": "101",
+            "text": "2/ Second in thread",
+            "author_id": "user1",
+            "author_username": "threadauthor",
+            "created_at": "2025-01-01T12:01:00Z",
+            "conversation_id": "100",
+        },
+    )
+    save_tweet(
+        db_path,
+        {
+            "id": "102",
+            "text": "3/ Third in thread",
+            "author_id": "user1",
+            "author_username": "threadauthor",
+            "created_at": "2025-01-01T12:02:00Z",
+            "conversation_id": "100",
+        },
+    )
+    # Like only the second tweet
+    add_to_collection(db_path, "101", "like")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.md"
+    result = runner.invoke(
+        app, ["export", "markdown", "--collection", "likes", "--output", str(output_path)]
+    )
+
+    assert result.exit_code == 0
+    content = output_path.read_text()
+    # Should show all 3 tweets in thread
+    assert "1/ First in thread" in content
+    assert "2/ Second in thread" in content
+    assert "3/ Third in thread" in content
+    # Should have thread indicator
+    assert "🧵" in content
+    # Should mark the liked tweet
+    assert "⭐" in content
