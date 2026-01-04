@@ -24,6 +24,26 @@ def test_sync_likes_async_accepts_db_path_and_count() -> None:
     assert "count" in params
 
 
+def test_sync_likes_async_accepts_with_threads_parameter() -> None:
+    """sync_likes_async should accept with_threads parameter."""
+    from tweethoarder.cli.sync import sync_likes_async
+
+    sig = inspect.signature(sync_likes_async)
+    params = list(sig.parameters.keys())
+
+    assert "with_threads" in params
+
+
+def test_sync_likes_async_accepts_thread_mode_parameter() -> None:
+    """sync_likes_async should accept thread_mode parameter."""
+    from tweethoarder.cli.sync import sync_likes_async
+
+    sig = inspect.signature(sync_likes_async)
+    params = list(sig.parameters.keys())
+
+    assert "thread_mode" in params
+
+
 @pytest.mark.asyncio
 async def test_sync_likes_async_initializes_database(tmp_path: Path) -> None:
     """sync_likes_async should initialize the database before syncing."""
@@ -246,6 +266,42 @@ def test_likes_command_calls_sync_likes_async() -> None:
     assert result.exit_code == 0
 
 
+def test_likes_command_passes_with_threads_to_async() -> None:
+    """The likes CLI command should pass with_threads to sync_likes_async."""
+    from unittest.mock import patch
+
+    from typer.testing import CliRunner
+
+    from tweethoarder.cli.main import app
+
+    runner = CliRunner()
+
+    with patch("tweethoarder.cli.sync.sync_likes_async") as mock_sync:
+        mock_sync.return_value = {"synced_count": 5}
+        runner.invoke(app, ["sync", "likes", "--with-threads"])
+
+        call_kwargs = mock_sync.call_args[1]
+        assert call_kwargs.get("with_threads") is True
+
+
+def test_likes_command_passes_thread_mode_to_async() -> None:
+    """The likes CLI command should pass thread_mode to sync_likes_async."""
+    from unittest.mock import patch
+
+    from typer.testing import CliRunner
+
+    from tweethoarder.cli.main import app
+
+    runner = CliRunner()
+
+    with patch("tweethoarder.cli.sync.sync_likes_async") as mock_sync:
+        mock_sync.return_value = {"synced_count": 5}
+        runner.invoke(app, ["sync", "likes", "--thread-mode", "conversation"])
+
+        call_kwargs = mock_sync.call_args[1]
+        assert call_kwargs.get("thread_mode") == "conversation"
+
+
 @pytest.mark.asyncio
 async def test_sync_likes_async_skips_incomplete_tweets(tmp_path: Path) -> None:
     """sync_likes_async should skip tweets with missing required fields."""
@@ -408,3 +464,42 @@ async def test_sync_likes_async_resumes_from_checkpoint(tmp_path: Path) -> None:
                 mock_fetch.assert_called()
                 call_args = mock_fetch.call_args
                 assert call_args[0][3] == "saved_cursor"  # cursor is 4th positional arg
+
+
+@pytest.mark.asyncio
+async def test_sync_likes_async_fetches_threads_for_all_synced_tweets(tmp_path: Path) -> None:
+    """sync_likes_async should fetch threads for ALL synced tweets, not just the last one."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_likes_async
+
+    db_path = tmp_path / "test.db"
+    # Create response with 3 tweets
+    mock_response = _make_likes_response(
+        [
+            _make_tweet_entry("111", "First"),
+            _make_tweet_entry("222", "Second"),
+            _make_tweet_entry("333", "Third"),
+        ]
+    )
+
+    mock_http_response = MagicMock()
+    mock_http_response.json.return_value = mock_response
+    mock_http_response.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t", "twid": "u%3D12345"}
+        with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_http_response
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+            with patch("tweethoarder.cli.sync.fetch_thread_async") as mock_fetch_thread:
+                mock_fetch_thread.return_value = {"tweet_count": 5}
+
+                await sync_likes_async(db_path=db_path, count=10, with_threads=True)
+
+                # Should be called 3 times - once for each synced tweet
+                assert mock_fetch_thread.call_count == 3
+                # Verify each tweet ID was passed
+                call_tweet_ids = [call[1]["tweet_id"] for call in mock_fetch_thread.call_args_list]
+                assert set(call_tweet_ids) == {"111", "222", "333"}

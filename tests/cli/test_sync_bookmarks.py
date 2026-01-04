@@ -24,6 +24,26 @@ def test_sync_bookmarks_async_accepts_db_path_and_count() -> None:
     assert "count" in params
 
 
+def test_sync_bookmarks_async_accepts_with_threads_parameter() -> None:
+    """sync_bookmarks_async should accept with_threads parameter."""
+    from tweethoarder.cli.sync import sync_bookmarks_async
+
+    sig = inspect.signature(sync_bookmarks_async)
+    params = list(sig.parameters.keys())
+
+    assert "with_threads" in params
+
+
+def test_sync_bookmarks_async_accepts_thread_mode_parameter() -> None:
+    """sync_bookmarks_async should accept thread_mode parameter."""
+    from tweethoarder.cli.sync import sync_bookmarks_async
+
+    sig = inspect.signature(sync_bookmarks_async)
+    params = list(sig.parameters.keys())
+
+    assert "thread_mode" in params
+
+
 @pytest.mark.asyncio
 async def test_sync_bookmarks_async_returns_synced_count(tmp_path: Path) -> None:
     """sync_bookmarks_async should return a dict with synced_count."""
@@ -166,6 +186,42 @@ def test_bookmarks_command_calls_sync_bookmarks_async() -> None:
     mock_sync.assert_called_once()
     assert result.exit_code == 0
     assert "5" in result.output
+
+
+def test_bookmarks_command_passes_with_threads_to_async() -> None:
+    """The bookmarks CLI command should pass with_threads to sync_bookmarks_async."""
+    from unittest.mock import patch
+
+    from typer.testing import CliRunner
+
+    from tweethoarder.cli.main import app
+
+    runner = CliRunner()
+
+    with patch("tweethoarder.cli.sync.sync_bookmarks_async") as mock_sync:
+        mock_sync.return_value = {"synced_count": 5}
+        runner.invoke(app, ["sync", "bookmarks", "--with-threads"])
+
+        call_kwargs = mock_sync.call_args[1]
+        assert call_kwargs.get("with_threads") is True
+
+
+def test_bookmarks_command_passes_thread_mode_to_async() -> None:
+    """The bookmarks CLI command should pass thread_mode to sync_bookmarks_async."""
+    from unittest.mock import patch
+
+    from typer.testing import CliRunner
+
+    from tweethoarder.cli.main import app
+
+    runner = CliRunner()
+
+    with patch("tweethoarder.cli.sync.sync_bookmarks_async") as mock_sync:
+        mock_sync.return_value = {"synced_count": 5}
+        runner.invoke(app, ["sync", "bookmarks", "--thread-mode", "conversation"])
+
+        call_kwargs = mock_sync.call_args[1]
+        assert call_kwargs.get("thread_mode") == "conversation"
 
 
 @pytest.mark.asyncio
@@ -484,3 +540,48 @@ async def test_sync_bookmarks_async_refreshes_query_id_on_404(tmp_path: Path) ->
     assert result["synced_count"] == 1
     mock_refresh.assert_called_once()
     mock_store.save.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_sync_bookmarks_async_fetches_threads_for_all_synced_tweets(tmp_path: Path) -> None:
+    """sync_bookmarks_async should fetch threads for ALL synced tweets, not just the last one."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_bookmarks_async
+
+    db_path = tmp_path / "test.db"
+    # Create response with 3 bookmarks
+    mock_response = _make_bookmarks_response(
+        [
+            _make_bookmark_entry("111", "First"),
+            _make_bookmark_entry("222", "Second"),
+            _make_bookmark_entry("333", "Third"),
+        ]
+    )
+
+    mock_http_response = MagicMock()
+    mock_http_response.json.return_value = mock_response
+    mock_http_response.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t"}
+        with patch("tweethoarder.query_ids.store.QueryIdStore") as mock_store_cls:
+            mock_store = MagicMock()
+            mock_store.get.return_value = "BOOK123"
+            mock_store_cls.return_value = mock_store
+            with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+                mock_client = AsyncMock()
+                mock_client.get.return_value = mock_http_response
+                mock_client_cls.return_value.__aenter__.return_value = mock_client
+                with patch("tweethoarder.cli.sync.fetch_thread_async") as mock_fetch_thread:
+                    mock_fetch_thread.return_value = {"tweet_count": 5}
+
+                    await sync_bookmarks_async(db_path=db_path, count=10, with_threads=True)
+
+                    # Should be called 3 times - once for each synced bookmark
+                    assert mock_fetch_thread.call_count == 3
+                    # Verify each tweet ID was passed
+                    call_tweet_ids = [
+                        call[1]["tweet_id"] for call in mock_fetch_thread.call_args_list
+                    ]
+                    assert set(call_tweet_ids) == {"111", "222", "333"}
