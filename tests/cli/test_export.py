@@ -406,3 +406,16 @@ def test_export_html_escapes_special_chars_in_render(tmp_path: Path, monkeypatch
     # The render function should use escapeHtml or textContent, not raw innerHTML
     # Check that the JavaScript uses a safe rendering method
     assert "escapeHtml" in content or "textContent" in content or "createTextNode" in content
+
+
+def test_export_html_no_duplicate_server_rendering(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should not render tweets server-side when JS renders them."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    # Check that main container is empty (JS will populate it)
+    assert '<main id="tweets">\n</main>' in content or '<main id="tweets"></main>' in content

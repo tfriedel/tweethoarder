@@ -264,6 +264,11 @@ def html(
         "<script>",
         f"const TWEETS = {tweets_json};",
         f"const FACETS = {facets_json};",
+        "function escapeHtml(s) {",
+        "  const div = document.createElement('div');",
+        "  div.textContent = s;",
+        "  return div.innerHTML;",
+        "}",
         "function filterTweets(query) {",
         "  return TWEETS.filter(t => "
         "!query || t.text.toLowerCase().includes(query.toLowerCase()));",
@@ -271,7 +276,8 @@ def html(
         "function renderTweets(tweets) {",
         "  const container = document.getElementById('tweets');",
         "  container.innerHTML = tweets.map(t => "
-        "`<article><p>@${t.author_username}: ${t.text}</p></article>`).join('');",
+        "`<article><p>@${escapeHtml(t.author_username)}: "
+        "${escapeHtml(t.text)}</p></article>`).join('');",
         "}",
         "document.addEventListener('DOMContentLoaded', () => {",
         "  const search = document.getElementById('search');",
@@ -285,12 +291,8 @@ def html(
         '<input type="search" id="search" placeholder="Search tweets...">',
         "</aside>",
         '<main id="tweets">',
+        "</main>",
     ]
-    for tweet in tweets:
-        username = tweet.get("author_username", "unknown")
-        text = tweet.get("text", "")
-        lines.append(f"<p>@{username}: {text}</p>")
-    lines.append("</main>")
     lines.append("</body>")
     lines.append("</html>")
     content = "\n".join(lines)
