@@ -201,13 +201,14 @@ CREATE INDEX idx_collections_added ON collections(added_at);
 
 ```bash
 # Sync commands (explicit subcommands)
-tweethoarder sync likes [--count N] [--all] [--resume]
-tweethoarder sync bookmarks [--folder NAME] [--resume]
-tweethoarder sync tweets [--count N] [--all] [--resume]
-tweethoarder sync reposts [--count N] [--all] [--resume]
+# Note: Resume is automatic - interrupted syncs continue from last checkpoint
+tweethoarder sync likes [--count N] [--all] [--with-threads] [--thread-mode MODE]
+tweethoarder sync bookmarks [--count N] [--all] [--with-threads] [--thread-mode MODE]
+tweethoarder sync tweets [--count N] [--all] [--with-threads] [--thread-mode MODE]
+tweethoarder sync reposts [--count N] [--all] [--with-threads] [--thread-mode MODE]
 
 # Thread fetching (on-demand)
-tweethoarder thread <tweet_id> [--depth N]   # Fetch thread context for a tweet
+tweethoarder thread <tweet_id> [--mode MODE] [--limit N] [--depth N]
 
 # Export commands
 tweethoarder export json [--collection TYPE] [--output PATH]
@@ -550,24 +551,30 @@ async def test_fetch_likes():
 4. ✅ Reposts sync
 5. ✅ Checkpointing infrastructure
 
-### Phase 5: Additional Features 🟡
-1. ⏳ Thread fetching (on-demand) - CLI stub exists
+### Phase 5: Additional Features ✅
+1. ✅ Thread fetching (on-demand) with thread/conversation modes
 2. ✅ Quoted tweet resolution
-3. ✅ Stats command
+3. ✅ Stats command (with folder breakdown)
 4. ✅ Progress display
 5. ✅ Config show/set commands
+6. ✅ `--with-threads` sync flag for thread expansion
 
 ### Phase 6: Export ✅
 1. ✅ JSON export
 2. ✅ Markdown export
-3. ✅ HTML single-file viewer
+3. ✅ HTML single-file viewer (with embedded search/filtering)
 4. ✅ CSV export
+5. ✅ `--folder` flag for bookmark filtering
 
 ### Phase 7: Testing & Polish 🟡
-1. ✅ Unit tests with mocks (217 tests)
+1. ✅ Unit tests with mocks (297 tests)
 2. ⏳ Integration tests with VCR.py
 3. ✅ Error handling edge cases
-4. ⏳ Documentation
+4. ✅ Documentation (README.md)
+
+### Phase 8: Query ID Resilience ✅
+1. ✅ Static fallback query IDs for all operations
+2. ✅ Dynamic fallback (auto-refresh on missing ID)
 
 **Legend:** ✅ Complete | 🟡 Partial | ⏳ Pending
 
@@ -1348,26 +1355,26 @@ SELECT * FROM threads WHERE is_complete = FALSE;
 
 ## Updated Implementation Phases
 
-### Phase 5: Additional Features (Updated)
+### Phase 5: Additional Features ✅
 
 1. ✅ Quoted tweet resolution
-2. ✅ Stats command
+2. ✅ Stats command (with folder breakdown)
 3. ✅ Progress display
 4. ✅ Config show/set commands
-5. ⏳ **Thread command** - Full implementation with thread/conversation modes
-6. ⏳ **--with-threads sync flag** - Thread expansion during sync
+5. ✅ **Thread command** - Full implementation with thread/conversation modes
+6. ✅ **--with-threads sync flag** - Thread expansion during sync
 
-### Phase 6: Export (Updated)
+### Phase 6: Export ✅
 
 1. ✅ JSON export
 2. ✅ Markdown export
 3. ✅ CSV export
-4. ⏳ **HTML export enhancement** - Add faceted search, filtering, embedded JS
-5. ⏳ **Bookmark folder filtering** - `--folder` flag for export commands
+4. ✅ **HTML export enhancement** - Faceted search, filtering, embedded JS
+5. ✅ **Bookmark folder filtering** - `--folder` flag for export commands
 
-### Phase 8: Query ID Resilience (New)
+### Phase 8: Query ID Resilience ✅
 
-1. ⏳ Add missing query IDs to FALLBACK_QUERY_IDS
-2. ⏳ Implement dynamic fallback (auto-refresh on missing ID)
+1. ✅ Static fallback query IDs for all operations
+2. ✅ Dynamic fallback (auto-refresh on missing ID)
 
 **Legend:** ✅ Complete | 🟡 Partial | ⏳ Pending

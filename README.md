@@ -51,21 +51,23 @@ tweethoarder stats
 
 ### Sync Commands
 
+Interrupted syncs automatically resume from the last checkpoint.
+
 ```bash
 # Sync likes (default: 100 tweets, use --all for unlimited)
-tweethoarder sync likes [--count N] [--all] [--resume]
+tweethoarder sync likes [--count N] [--all]
 
 # Sync bookmarks from all folders
-tweethoarder sync bookmarks [--resume]
+tweethoarder sync bookmarks [--count N] [--all]
 
 # Sync your own tweets
-tweethoarder sync tweets [--count N] [--all] [--resume]
+tweethoarder sync tweets [--count N] [--all]
 
 # Sync reposts (retweets)
-tweethoarder sync reposts [--count N] [--all] [--resume]
+tweethoarder sync reposts [--count N] [--all]
 
 # Sync with thread expansion (archives full threads for each tweet)
-tweethoarder sync likes --with-threads
+tweethoarder sync likes --with-threads [--thread-mode thread|conversation]
 ```
 
 ### Thread Commands
@@ -262,9 +264,8 @@ tweethoarder refresh-ids
 ### Rate limiting
 
 TweetHoarder uses adaptive rate limiting. If you hit limits:
-- Wait a few minutes and retry
-- Use `--resume` to continue where you left off
-- Reduce `request_delay_ms` in config for slower but safer syncing
+- Wait a few minutes and retry (syncs auto-resume from checkpoint)
+- Increase `request_delay_ms` in config for slower but safer syncing
 
 ## License
 
