@@ -140,3 +140,40 @@ def test_stats_handles_missing_database(tmp_path: Path, monkeypatch: pytest.Monk
     result = runner.invoke(app, ["stats"])
     assert result.exit_code == 0
     assert "Total Tweets: 0" in result.output
+
+
+def test_stats_shows_bookmark_folder_breakdown(stats_db: Path) -> None:
+    """Stats command should show breakdown of bookmarks by folder."""
+    with sqlite3.connect(stats_db) as conn:
+        # Insert test tweets
+        for i in range(3):
+            conn.execute(
+                """INSERT INTO tweets (id, text, author_id, author_username, created_at,
+                   first_seen_at, last_updated_at)
+                   VALUES (?, 'test tweet', 'user1', 'testuser', '2025-01-01T00:00:00Z',
+                   '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')""",
+                (str(i),),
+            )
+        # Add bookmarks with different folders
+        conn.execute(
+            """INSERT INTO collections (tweet_id, collection_type, bookmark_folder_name,
+               added_at, synced_at)
+               VALUES ('0', 'bookmark', 'Work', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"""
+        )
+        conn.execute(
+            """INSERT INTO collections (tweet_id, collection_type, bookmark_folder_name,
+               added_at, synced_at)
+               VALUES ('1', 'bookmark', 'Work', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"""
+        )
+        conn.execute(
+            """INSERT INTO collections (tweet_id, collection_type, bookmark_folder_name,
+               added_at, synced_at)
+               VALUES ('2', 'bookmark', 'Personal', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"""  # noqa: E501
+        )
+        conn.commit()
+
+    result = runner.invoke(app, ["stats"])
+    assert result.exit_code == 0
+    # Should show folder breakdown
+    assert "Work" in result.output
+    assert "Personal" in result.output
