@@ -572,6 +572,67 @@ async def test_sync_bookmarks_async_refreshes_query_id_on_404(tmp_path: Path) ->
     mock_store.save.assert_called_once()
 
 
+def test_sync_bookmarks_async_accepts_store_raw_parameter() -> None:
+    """sync_bookmarks_async should accept store_raw parameter."""
+    from tweethoarder.cli.sync import sync_bookmarks_async
+
+    sig = inspect.signature(sync_bookmarks_async)
+    params = list(sig.parameters.keys())
+
+    assert "store_raw" in params
+
+
+def test_bookmarks_command_passes_store_raw_to_async() -> None:
+    """The bookmarks CLI command should pass store_raw to sync_bookmarks_async."""
+    from unittest.mock import patch
+
+    from typer.testing import CliRunner
+
+    from tweethoarder.cli.main import app
+
+    runner = CliRunner()
+
+    with patch("tweethoarder.cli.sync.sync_bookmarks_async") as mock_sync:
+        mock_sync.return_value = {"synced_count": 5}
+        runner.invoke(app, ["sync", "bookmarks", "--store-raw"])
+
+        call_kwargs = mock_sync.call_args[1]
+        assert call_kwargs.get("store_raw") is True
+
+
+@pytest.mark.asyncio
+async def test_sync_bookmarks_async_stores_raw_json_when_store_raw_enabled(tmp_path: Path) -> None:
+    """sync_bookmarks_async should store raw_json in database when store_raw=True."""
+    import sqlite3
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_bookmarks_async
+
+    db_path = tmp_path / "test.db"
+    mock_response = _make_bookmarks_response([_make_bookmark_entry("123", "Hello")])
+
+    mock_http_response = MagicMock()
+    mock_http_response.json.return_value = mock_response
+    mock_http_response.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t"}
+        with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_http_response
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            await sync_bookmarks_async(db_path=db_path, count=10, store_raw=True)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("SELECT raw_json FROM tweets WHERE id = ?", ("123",))
+    row = cursor.fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] is not None
+
+
 @pytest.mark.asyncio
 async def test_sync_bookmarks_async_fetches_threads_for_all_synced_tweets(tmp_path: Path) -> None:
     """sync_bookmarks_async should fetch threads for ALL synced tweets, not just the last one."""

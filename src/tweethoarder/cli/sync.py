@@ -31,6 +31,7 @@ async def sync_likes_async(
     count: int | float,
     with_threads: bool = False,
     thread_mode: str = "thread",
+    store_raw: bool = False,
 ) -> dict[str, Any]:
     """Sync liked tweets from Twitter to local database.
 
@@ -43,6 +44,7 @@ async def sync_likes_async(
         count: Maximum number of likes to sync. Use float('inf') for all.
         with_threads: If True, fetch thread context for synced tweets.
         thread_mode: Mode for thread fetching ('thread' or 'conversation').
+        store_raw: If True, store raw API response JSON in the database.
 
     Returns:
         Dictionary with 'synced_count' key containing the number of
@@ -105,6 +107,10 @@ async def sync_likes_async(
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data is None:
                     continue
+                if store_raw:
+                    import json
+
+                    tweet_data["raw_json"] = json.dumps(raw_tweet)
                 save_tweet(db_path, tweet_data)
                 add_to_collection(db_path, tweet_data["id"], "like", sort_index=sort_index)
                 last_tweet_id = tweet_data["id"]
@@ -137,6 +143,7 @@ def likes(
     thread_mode: str = typer.Option(
         "thread", "--thread-mode", help="Thread mode: thread (author only) or conversation."
     ),
+    store_raw: bool = typer.Option(False, "--store-raw", help="Store raw API response JSON."),
 ) -> None:
     """Sync liked tweets to local storage."""
     import asyncio
@@ -147,14 +154,22 @@ def likes(
     effective_count = float("inf") if all_likes else count
     result = asyncio.run(
         sync_likes_async(
-            db_path, effective_count, with_threads=with_threads, thread_mode=thread_mode
+            db_path,
+            effective_count,
+            with_threads=with_threads,
+            thread_mode=thread_mode,
+            store_raw=store_raw,
         )
     )
     typer.echo(f"Synced {result['synced_count']} likes.")
 
 
 async def sync_bookmarks_async(
-    db_path: Path, count: float, with_threads: bool = False, thread_mode: str = "thread"
+    db_path: Path,
+    count: float,
+    with_threads: bool = False,
+    thread_mode: str = "thread",
+    store_raw: bool = False,
 ) -> dict[str, int]:
     """Sync bookmarks asynchronously."""
     from tweethoarder.client.timelines import (
@@ -209,6 +224,10 @@ async def sync_bookmarks_async(
                     break
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data:
+                    if store_raw:
+                        import json
+
+                        tweet_data["raw_json"] = json.dumps(raw_tweet)
                     save_tweet(db_path, tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "bookmark")
                     last_tweet_id = tweet_data["id"]
@@ -241,6 +260,7 @@ def bookmarks(
     thread_mode: str = typer.Option(
         "thread", "--thread-mode", help="Thread mode: thread (author only) or conversation."
     ),
+    store_raw: bool = typer.Option(False, "--store-raw", help="Store raw API response JSON."),
 ) -> None:
     """Sync bookmarked tweets to local storage."""
     import asyncio
@@ -251,14 +271,22 @@ def bookmarks(
     effective_count = float("inf") if all_bookmarks else count
     result = asyncio.run(
         sync_bookmarks_async(
-            db_path, effective_count, with_threads=with_threads, thread_mode=thread_mode
+            db_path,
+            effective_count,
+            with_threads=with_threads,
+            thread_mode=thread_mode,
+            store_raw=store_raw,
         )
     )
     typer.echo(f"Synced {result['synced_count']} bookmarks.")
 
 
 async def sync_tweets_async(
-    db_path: Path, count: float, with_threads: bool = False, thread_mode: str = "thread"
+    db_path: Path,
+    count: float,
+    with_threads: bool = False,
+    thread_mode: str = "thread",
+    store_raw: bool = False,
 ) -> dict[str, int]:
     """Sync user's tweets asynchronously."""
     from tweethoarder.client.timelines import (
@@ -304,6 +332,10 @@ async def sync_tweets_async(
                     break
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data:
+                    if store_raw:
+                        import json
+
+                        tweet_data["raw_json"] = json.dumps(raw_tweet)
                     save_tweet(db_path, tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "tweet")
                     synced_tweet_ids.append(tweet_data["id"])
@@ -328,6 +360,7 @@ def tweets(
     thread_mode: str = typer.Option(
         "thread", "--thread-mode", help="Thread mode: thread (author only) or conversation."
     ),
+    store_raw: bool = typer.Option(False, "--store-raw", help="Store raw API response JSON."),
 ) -> None:
     """Sync user's own tweets to local storage."""
     import asyncio
@@ -338,14 +371,22 @@ def tweets(
     effective_count = float("inf") if all_tweets else count
     result = asyncio.run(
         sync_tweets_async(
-            db_path, effective_count, with_threads=with_threads, thread_mode=thread_mode
+            db_path,
+            effective_count,
+            with_threads=with_threads,
+            thread_mode=thread_mode,
+            store_raw=store_raw,
         )
     )
     typer.echo(f"Synced {result['synced_count']} tweets.")
 
 
 async def sync_reposts_async(
-    db_path: Path, count: float, with_threads: bool = False, thread_mode: str = "thread"
+    db_path: Path,
+    count: float,
+    with_threads: bool = False,
+    thread_mode: str = "thread",
+    store_raw: bool = False,
 ) -> dict[str, int]:
     """Sync user's reposts asynchronously."""
     from tweethoarder.client.timelines import (
@@ -394,6 +435,10 @@ async def sync_reposts_async(
                     continue
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data:
+                    if store_raw:
+                        import json
+
+                        tweet_data["raw_json"] = json.dumps(raw_tweet)
                     save_tweet(db_path, tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "repost")
                     synced_tweet_ids.append(tweet_data["id"])
@@ -418,6 +463,7 @@ def reposts(
     thread_mode: str = typer.Option(
         "thread", "--thread-mode", help="Thread mode: thread (author only) or conversation."
     ),
+    store_raw: bool = typer.Option(False, "--store-raw", help="Store raw API response JSON."),
 ) -> None:
     """Sync user's reposts (retweets) to local storage."""
     import asyncio
@@ -428,7 +474,11 @@ def reposts(
     effective_count = float("inf") if all_reposts else count
     result = asyncio.run(
         sync_reposts_async(
-            db_path, effective_count, with_threads=with_threads, thread_mode=thread_mode
+            db_path,
+            effective_count,
+            with_threads=with_threads,
+            thread_mode=thread_mode,
+            store_raw=store_raw,
         )
     )
     typer.echo(f"Synced {result['synced_count']} reposts.")

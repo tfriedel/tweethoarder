@@ -70,3 +70,8 @@ def build_bookmarks_features() -> dict[str, bool]:
 def build_likes_features() -> dict[str, bool]:
     """Build feature flags for likes requests."""
     return build_timeline_features()
+
+
+def build_tweet_detail_features() -> dict[str, bool]:
+    """Build feature flags for TweetDetail requests."""
+    return build_timeline_features()
