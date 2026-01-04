@@ -156,19 +156,90 @@ def html(
         else get_all_tweets(db_path)
     )
 
+    import json
+    from collections import Counter
+
+    tweets_json = json.dumps(tweets)
+
+    # Compute facets
+    author_counts: Counter[str] = Counter()
+    month_counts: Counter[str] = Counter()
+    media_counts = {"photo": 0, "video": 0, "link": 0, "text_only": 0}
+
+    for tweet in tweets:
+        username = tweet.get("author_username", "unknown")
+        author_counts[username] += 1
+
+        created_at = tweet.get("created_at", "")
+        if created_at and len(created_at) >= 7:
+            month = created_at[:7]  # YYYY-MM
+            month_counts[month] += 1
+
+        media_json = tweet.get("media_json")
+        urls_json = tweet.get("urls_json")
+        has_media = False
+
+        if media_json:
+            has_media = True
+            if "video" in str(media_json).lower():
+                media_counts["video"] += 1
+            else:
+                media_counts["photo"] += 1
+        if urls_json:
+            has_media = True
+            media_counts["link"] += 1
+        if not has_media:
+            media_counts["text_only"] += 1
+
+    facets = {
+        "authors": [{"username": u, "count": c} for u, c in author_counts.most_common()],
+        "months": [{"month": m, "count": c} for m, c in sorted(month_counts.items())],
+        "media": media_counts,
+    }
+    facets_json = json.dumps(facets)
+
     lines = [
         "<!DOCTYPE html>",
         "<html>",
         "<head>",
-        "<style>body { font-family: sans-serif; }</style>",
-        "<script></script>",
+        "<style>",
+        "body { font-family: sans-serif; display: flex; margin: 0; }",
+        "#filters { width: 250px; padding: 1rem; border-right: 1px solid #ddd; }",
+        "#tweets { flex: 1; padding: 1rem; overflow-y: auto; }",
+        "article { margin-bottom: 1rem; padding: 0.5rem; border-bottom: 1px solid #eee; }",
+        "@media (max-width: 768px) { body { flex-direction: column; } "
+        "#filters { width: 100%; border-right: none; border-bottom: 1px solid #ddd; } }",
+        "</style>",
+        "<script>",
+        f"const TWEETS = {tweets_json};",
+        f"const FACETS = {facets_json};",
+        "function filterTweets(query) {",
+        "  return TWEETS.filter(t => "
+        "!query || t.text.toLowerCase().includes(query.toLowerCase()));",
+        "}",
+        "function renderTweets(tweets) {",
+        "  const container = document.getElementById('tweets');",
+        "  container.innerHTML = tweets.map(t => "
+        "`<article><p>@${t.author_username}: ${t.text}</p></article>`).join('');",
+        "}",
+        "document.addEventListener('DOMContentLoaded', () => {",
+        "  const search = document.getElementById('search');",
+        "  search.addEventListener('input', () => renderTweets(filterTweets(search.value)));",
+        "  renderTweets(TWEETS);",
+        "});",
+        "</script>",
         "</head>",
         "<body>",
+        '<aside id="filters">',
+        '<input type="search" id="search" placeholder="Search tweets...">',
+        "</aside>",
+        '<main id="tweets">',
     ]
     for tweet in tweets:
         username = tweet.get("author_username", "unknown")
         text = tweet.get("text", "")
         lines.append(f"<p>@{username}: {text}</p>")
+    lines.append("</main>")
     lines.append("</body>")
     lines.append("</html>")
     content = "\n".join(lines)

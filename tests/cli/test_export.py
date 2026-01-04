@@ -214,3 +214,111 @@ def test_export_html_has_embedded_data(tmp_path: Path, monkeypatch: object) -> N
 
     content = output_path.read_text()
     assert "<script>" in content
+
+
+def test_export_html_has_tweets_json(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should embed tweet data as TWEETS JSON array."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "const TWEETS = [" in content
+
+
+def test_export_html_has_facets_json(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should embed pre-computed facets for filtering."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "const FACETS = {" in content
+
+
+def test_export_html_has_search_input(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should include a search input for filtering tweets."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert 'type="search"' in content or 'id="search"' in content
+
+
+def test_export_html_has_main_container(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should have a main container for tweets."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert 'id="tweets"' in content or "<main" in content
+
+
+def test_export_html_has_filters_sidebar(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should have a filters sidebar."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert 'id="filters"' in content or "<aside" in content
+
+
+def test_export_html_has_filter_function(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should include JavaScript filtering function."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "function" in content and "filter" in content.lower()
+
+
+def test_export_html_has_render_function(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should include JavaScript render function."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "renderTweets" in content or "render" in content.lower()
+
+
+def test_export_html_has_search_event_listener(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should wire up search input to filtering logic."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "addEventListener" in content or "oninput" in content
+
+
+def test_export_html_has_responsive_layout(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should have responsive CSS for sidebar layout."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "display:" in content or "@media" in content or "flex" in content
