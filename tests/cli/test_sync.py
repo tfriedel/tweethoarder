@@ -62,3 +62,59 @@ def test_sync_bookmarks_accepts_all_flag() -> None:
     result = runner.invoke(app, ["sync", "bookmarks", "--help"])
     assert result.exit_code == 0
     assert "--all" in strip_ansi(result.output)
+
+
+def test_sync_likes_accepts_with_threads_flag() -> None:
+    """The sync likes command should accept a --with-threads flag."""
+    result = runner.invoke(app, ["sync", "likes", "--help"])
+    assert result.exit_code == 0
+    assert "--with-threads" in strip_ansi(result.output)
+
+
+def test_sync_likes_accepts_thread_mode_option() -> None:
+    """The sync likes command should accept a --thread-mode option."""
+    result = runner.invoke(app, ["sync", "likes", "--help"])
+    assert result.exit_code == 0
+    assert "--thread-mode" in strip_ansi(result.output)
+
+
+def test_sync_bookmarks_accepts_with_threads_flag() -> None:
+    """The sync bookmarks command should accept a --with-threads flag."""
+    result = runner.invoke(app, ["sync", "bookmarks", "--help"])
+    assert result.exit_code == 0
+    assert "--with-threads" in strip_ansi(result.output)
+
+
+def test_sync_bookmarks_accepts_thread_mode_option() -> None:
+    """The sync bookmarks command should accept a --thread-mode option."""
+    result = runner.invoke(app, ["sync", "bookmarks", "--help"])
+    assert result.exit_code == 0
+    assert "--thread-mode" in strip_ansi(result.output)
+
+
+def test_sync_tweets_accepts_with_threads_flag() -> None:
+    """The sync tweets command should accept a --with-threads flag."""
+    result = runner.invoke(app, ["sync", "tweets", "--help"])
+    assert result.exit_code == 0
+    assert "--with-threads" in strip_ansi(result.output)
+
+
+def test_sync_tweets_accepts_thread_mode_option() -> None:
+    """The sync tweets command should accept a --thread-mode option."""
+    result = runner.invoke(app, ["sync", "tweets", "--help"])
+    assert result.exit_code == 0
+    assert "--thread-mode" in strip_ansi(result.output)
+
+
+def test_sync_reposts_accepts_with_threads_flag() -> None:
+    """The sync reposts command should accept a --with-threads flag."""
+    result = runner.invoke(app, ["sync", "reposts", "--help"])
+    assert result.exit_code == 0
+    assert "--with-threads" in strip_ansi(result.output)
+
+
+def test_sync_reposts_accepts_thread_mode_option() -> None:
+    """The sync reposts command should accept a --thread-mode option."""
+    result = runner.invoke(app, ["sync", "reposts", "--help"])
+    assert result.exit_code == 0
+    assert "--thread-mode" in strip_ansi(result.output)

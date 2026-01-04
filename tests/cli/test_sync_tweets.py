@@ -1,5 +1,6 @@
 """Tests for user tweets sync functionality."""
 
+import inspect
 from pathlib import Path
 
 import pytest
@@ -272,3 +273,149 @@ def test_tweets_command_calls_sync_tweets_async() -> None:
 
         mock_sync.assert_called_once()
         assert "5" in result.output
+
+
+def test_sync_tweets_async_accepts_with_threads_parameter() -> None:
+    """sync_tweets_async should accept with_threads parameter."""
+    from tweethoarder.cli.sync import sync_tweets_async
+
+    sig = inspect.signature(sync_tweets_async)
+    params = list(sig.parameters.keys())
+
+    assert "with_threads" in params
+
+
+def test_sync_tweets_async_accepts_thread_mode_parameter() -> None:
+    """sync_tweets_async should accept thread_mode parameter."""
+    from tweethoarder.cli.sync import sync_tweets_async
+
+    sig = inspect.signature(sync_tweets_async)
+    params = list(sig.parameters.keys())
+
+    assert "thread_mode" in params
+
+
+def test_tweets_command_passes_with_threads_to_async() -> None:
+    """The tweets CLI command should pass with_threads to sync_tweets_async."""
+    from unittest.mock import patch
+
+    from typer.testing import CliRunner
+
+    from tweethoarder.cli.main import app
+
+    runner = CliRunner()
+
+    with patch("tweethoarder.cli.sync.sync_tweets_async") as mock_sync:
+        mock_sync.return_value = {"synced_count": 5}
+        runner.invoke(app, ["sync", "tweets", "--with-threads"])
+
+        call_kwargs = mock_sync.call_args[1]
+        assert call_kwargs.get("with_threads") is True
+
+
+def test_tweets_command_passes_thread_mode_to_async() -> None:
+    """The tweets CLI command should pass thread_mode to sync_tweets_async."""
+    from unittest.mock import patch
+
+    from typer.testing import CliRunner
+
+    from tweethoarder.cli.main import app
+
+    runner = CliRunner()
+
+    with patch("tweethoarder.cli.sync.sync_tweets_async") as mock_sync:
+        mock_sync.return_value = {"synced_count": 5}
+        runner.invoke(app, ["sync", "tweets", "--thread-mode", "conversation"])
+
+        call_kwargs = mock_sync.call_args[1]
+        assert call_kwargs.get("thread_mode") == "conversation"
+
+
+@pytest.mark.asyncio
+async def test_sync_tweets_async_fetches_threads_when_enabled(tmp_path: Path) -> None:
+    """sync_tweets_async should fetch threads when with_threads=True."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_tweets_async
+
+    db_path = tmp_path / "test.db"
+
+    mock_response = {
+        "data": {
+            "user": {
+                "result": {
+                    "timeline_v2": {
+                        "timeline": {
+                            "instructions": [
+                                {
+                                    "type": "TimelineAddEntries",
+                                    "entries": [
+                                        {
+                                            "entryId": "tweet-123",
+                                            "content": {
+                                                "itemContent": {
+                                                    "tweet_results": {
+                                                        "result": {
+                                                            "rest_id": "123",
+                                                            "legacy": {
+                                                                "full_text": "Hello world",
+                                                                "created_at": "Wed Jan 01 12:00:00 +0000 2025",  # noqa: E501
+                                                                "conversation_id_str": "123",
+                                                                "reply_count": 0,
+                                                                "retweet_count": 0,
+                                                                "favorite_count": 0,
+                                                                "quote_count": 0,
+                                                            },
+                                                            "core": {
+                                                                "user_results": {
+                                                                    "result": {
+                                                                        "rest_id": "456",
+                                                                        "core": {
+                                                                            "screen_name": "testuser",  # noqa: E501
+                                                                            "name": "Test User",
+                                                                        },
+                                                                    }
+                                                                }
+                                                            },
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    with (
+        patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies,
+        patch("tweethoarder.cli.sync.TwitterClient") as mock_client_class,
+        patch("tweethoarder.cli.sync.get_config_dir") as mock_config_dir,
+        patch("tweethoarder.cli.sync.get_query_id_with_fallback") as mock_get_query_id,
+        patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_async_client,
+        patch("tweethoarder.cli.sync.fetch_thread_async") as mock_fetch_thread,
+    ):
+        mock_cookies.return_value = {"twid": "u%3D789"}
+        mock_client_class.return_value.get_base_headers.return_value = {}
+        mock_config_dir.return_value = tmp_path
+        mock_get_query_id.return_value = "ABC123"
+
+        mock_http = AsyncMock()
+        mock_http_response = MagicMock()
+        mock_http_response.json.return_value = mock_response
+        mock_http_response.raise_for_status = MagicMock()
+        mock_http.get.return_value = mock_http_response
+        mock_async_client.return_value.__aenter__.return_value = mock_http
+
+        mock_fetch_thread.return_value = {"tweet_count": 5}
+
+        await sync_tweets_async(db_path, count=10, with_threads=True)
+
+        mock_fetch_thread.assert_called_once()
+        call_args = mock_fetch_thread.call_args
+        assert call_args[1]["tweet_id"] == "123"
