@@ -214,3 +214,208 @@ def test_export_html_has_embedded_data(tmp_path: Path, monkeypatch: object) -> N
 
     content = output_path.read_text()
     assert "<script>" in content
+
+
+def test_export_html_has_tweets_json(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should embed tweet data as TWEETS JSON array."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "const TWEETS = [" in content
+
+
+def test_export_html_has_facets_json(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should embed pre-computed facets for filtering."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "const FACETS = {" in content
+
+
+def test_export_html_has_search_input(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should include a search input for filtering tweets."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert 'type="search"' in content or 'id="search"' in content
+
+
+def test_export_html_has_main_container(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should have a main container for tweets."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert 'id="tweets"' in content or "<main" in content
+
+
+def test_export_html_has_filters_sidebar(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should have a filters sidebar."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert 'id="filters"' in content or "<aside" in content
+
+
+def test_export_html_has_filter_function(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should include JavaScript filtering function."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "function" in content and "filter" in content.lower()
+
+
+def test_export_html_has_render_function(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should include JavaScript render function."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "renderTweets" in content or "render" in content.lower()
+
+
+def test_export_html_has_search_event_listener(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should wire up search input to filtering logic."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "addEventListener" in content or "oninput" in content
+
+
+def test_export_html_has_responsive_layout(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should have responsive CSS for sidebar layout."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    assert "display:" in content or "@media" in content or "flex" in content
+
+
+def test_export_html_media_facets_are_mutually_exclusive(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    """Media facet counts should not double-count tweets with both media and URLs."""
+    import sqlite3
+
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    # Save tweet first
+    save_tweet(
+        db_path,
+        {
+            "id": "tweet_with_both",
+            "text": "Photo and link",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    # Manually update media_json and urls_json (save_tweet doesn't support these yet)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE tweets SET media_json = ?, urls_json = ? WHERE id = ?",
+            ('[{"type": "photo"}]', '[{"url": "https://example.com"}]', "tweet_with_both"),
+        )
+    add_to_collection(db_path, "tweet_with_both", "like")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    # Parse FACETS from the HTML
+    import json
+    import re
+
+    facets_match = re.search(r"const FACETS = ({.*?});", content)
+    assert facets_match is not None
+    facets = json.loads(facets_match.group(1))
+    media = facets["media"]
+    # Total should equal 1 (not 2 from double-counting)
+    total = media["photo"] + media["video"] + media["link"] + media["text_only"]
+    assert total == 1, f"Expected 1 tweet counted once, got {total} counts"
+
+
+def test_export_html_escapes_special_chars_in_render(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should escape HTML special chars to prevent XSS."""
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    # Tweet with HTML/script content
+    save_tweet(
+        db_path,
+        {
+            "id": "xss_tweet",
+            "text": "<script>alert('xss')</script>",
+            "author_id": "attacker",
+            "author_username": "evil<script>user",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "xss_tweet", "like")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    # The render function should use escapeHtml or textContent, not raw innerHTML
+    # Check that the JavaScript uses a safe rendering method
+    assert "escapeHtml" in content or "textContent" in content or "createTextNode" in content
+
+
+def test_export_html_no_duplicate_server_rendering(tmp_path: Path, monkeypatch: object) -> None:
+    """Export html should not render tweets server-side when JS renders them."""
+    _setup_test_db(tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))  # type: ignore[attr-defined]
+
+    output_path = tmp_path / "output.html"
+    runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
+
+    content = output_path.read_text()
+    # Check that main container is empty (JS will populate it)
+    assert '<main id="tweets">\n</main>' in content or '<main id="tweets"></main>' in content

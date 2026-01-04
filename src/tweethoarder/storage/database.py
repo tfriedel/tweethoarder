@@ -257,3 +257,27 @@ def get_all_tweets(db_path: Path) -> list[dict[str, Any]]:
             """
         )
         return [dict(row) for row in cursor.fetchall()]
+
+
+def get_tweets_by_bookmark_folder(db_path: Path, folder_name: str) -> list[dict[str, Any]]:
+    """Get bookmarked tweets filtered by folder name.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        folder_name: The bookmark folder name to filter by.
+
+    Returns:
+        List of tweet dictionaries ordered by when they were added (most recent first).
+    """
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(
+            """
+            SELECT t.* FROM tweets t
+            JOIN collections c ON t.id = c.tweet_id
+            WHERE c.collection_type = 'bookmark' AND c.bookmark_folder_name = ?
+            ORDER BY c.added_at DESC
+            """,
+            (folder_name,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
