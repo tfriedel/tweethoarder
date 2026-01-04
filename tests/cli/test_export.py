@@ -731,3 +731,103 @@ def test_export_markdown_includes_thread_context(
     assert "🧵" in content
     # Should mark the liked tweet
     assert "⭐" in content
+
+
+def test_export_markdown_continues_on_thread_context_error(tmp_path: Path) -> None:
+    """Export should continue even if fetching thread context fails."""
+    from unittest.mock import patch
+
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "1",
+            "text": "Tweet with thread context",
+            "author_id": "100",
+            "author_username": "user",
+            "created_at": "2025-01-01T12:00:00Z",
+            "conversation_id": "1",
+        },
+    )
+    add_to_collection(db_path, "1", "like")
+
+    output_path = tmp_path / "test.md"
+
+    def failing_get_tweets(*args: object, **kwargs: object) -> list[dict[str, object]]:
+        raise Exception("Database error")
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch(
+            "tweethoarder.storage.database.get_tweets_by_conversation_id",
+            side_effect=failing_get_tweets,
+        ),
+    ):
+        mock_data_dir.return_value = data_dir
+
+        result = runner.invoke(
+            app,
+            ["export", "markdown", "--collection", "likes", "--output", str(output_path)],
+        )
+
+        # Export should succeed despite thread context error
+        assert result.exit_code == 0
+        content = output_path.read_text()
+        # Tweet should still be exported
+        assert "Tweet with thread context" in content
+
+
+def test_export_html_continues_on_thread_context_error(tmp_path: Path) -> None:
+    """HTML export should continue even if fetching thread context fails."""
+    from unittest.mock import patch
+
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "1",
+            "text": "Tweet with thread context",
+            "author_id": "100",
+            "author_username": "user",
+            "created_at": "2025-01-01T12:00:00Z",
+            "conversation_id": "1",
+        },
+    )
+    add_to_collection(db_path, "1", "like")
+
+    output_path = tmp_path / "test.html"
+
+    def failing_get_tweets(*args: object, **kwargs: object) -> list[dict[str, object]]:
+        raise Exception("Database error")
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch(
+            "tweethoarder.storage.database.get_tweets_by_conversation_id",
+            side_effect=failing_get_tweets,
+        ),
+    ):
+        mock_data_dir.return_value = data_dir
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_path)],
+        )
+
+        # Export should succeed despite thread context error
+        assert result.exit_code == 0
+        content = output_path.read_text()
+        # Tweet should still be exported
+        assert "Tweet with thread context" in content

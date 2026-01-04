@@ -410,6 +410,8 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     user_result = raw_tweet.get("core", {}).get("user_results", {}).get("result", {})
     user_core = user_result.get("core", {})
     user_legacy = user_result.get("legacy", {})
+    # Avatar: try new API structure first, fallback to legacy
+    user_avatar = user_result.get("avatar", {})
 
     tweet_id = raw_tweet.get("rest_id")
     # Use note_tweet for long tweets, fallback to legacy.full_text
@@ -437,7 +439,8 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
         "author_id": author_id,
         "author_username": author_username,
         "author_display_name": user_core.get("name"),
-        "author_avatar_url": user_legacy.get("profile_image_url_https"),
+        "author_avatar_url": user_avatar.get("image_url")
+        or user_legacy.get("profile_image_url_https"),
         "created_at": created_at,
         "conversation_id": legacy.get("conversation_id_str"),
         "in_reply_to_tweet_id": legacy.get("in_reply_to_status_id_str"),

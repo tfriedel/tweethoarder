@@ -124,7 +124,10 @@ def markdown(
     for tweet in tweets:
         conv_id = tweet.get("conversation_id")
         if conv_id and conv_id not in thread_context:
-            thread_context[conv_id] = get_tweets_by_conversation_id(db_path, conv_id)
+            try:
+                thread_context[conv_id] = get_tweets_by_conversation_id(db_path, conv_id)
+            except Exception:
+                thread_context[conv_id] = []
 
     content = export_tweets_to_markdown(
         tweets, collection=collection, thread_context=thread_context
@@ -223,12 +226,31 @@ def html(
     for tweet in tweets:
         conv_id = tweet.get("conversation_id")
         if conv_id and conv_id not in thread_context:
-            thread_context[conv_id] = get_tweets_by_conversation_id(db_path, conv_id)
+            try:
+                thread_context[conv_id] = get_tweets_by_conversation_id(db_path, conv_id)
+            except Exception:
+                thread_context[conv_id] = []
 
     import json
     from collections import Counter
 
-    tweets_json = json.dumps(tweets)
+    # Strip unused fields to reduce HTML size
+    used_fields = {
+        "id",
+        "text",
+        "author_id",
+        "author_username",
+        "author_display_name",
+        "author_avatar_url",
+        "created_at",
+        "conversation_id",
+        "urls_json",
+        "media_json",
+        "is_retweet",
+        "quoted_tweet_id",
+    }
+    stripped_tweets = [{k: v for k, v in t.items() if k in used_fields} for t in tweets]
+    tweets_json = json.dumps(stripped_tweets)
 
     # Compute facets
     author_counts: Counter[str] = Counter()
@@ -266,7 +288,12 @@ def html(
         "media": media_counts,
     }
     facets_json = json.dumps(facets)
-    thread_context_json = json.dumps(thread_context)
+    # Strip unused fields from thread context too
+    stripped_thread_context = {
+        conv_id: [{k: v for k, v in t.items() if k in used_fields} for t in thread_tweets]
+        for conv_id, thread_tweets in thread_context.items()
+    }
+    thread_context_json = json.dumps(stripped_thread_context)
 
     lines = [
         "<!DOCTYPE html>",
@@ -276,7 +303,16 @@ def html(
         "body { font-family: sans-serif; display: flex; margin: 0; }",
         "#filters { width: 250px; padding: 1rem; border-right: 1px solid #ddd; }",
         "#tweets { flex: 1; padding: 1rem; overflow-y: auto; }",
-        "article { margin-bottom: 1rem; padding: 0.5rem; border-bottom: 1px solid #eee; }",
+        "article { margin-bottom: 1rem; padding: 1rem; border: 1px solid #e1e8ed; "
+        "border-radius: 12px; }",
+        ".avatar { width: 48px; height: 48px; border-radius: 50%; }",
+        ".avatar-placeholder { width: 48px; height: 48px; border-radius: 50%; background: #ccc; }",
+        "a { color: #1DA1F2; }",
+        ".quoted-tweet { margin-top: 8px; padding: 12px; border: 1px solid #e1e8ed; "
+        "border-radius: 12px; background: #f7f9fa; }",
+        ".retweet-header { color: #657786; font-size: 13px; margin-bottom: 4px; }",
+        ".media-placeholder { background: #e1e8ed; border-radius: 8px; padding: 40px; "
+        "text-align: center; color: #657786; cursor: pointer; margin-top: 8px; }",
         "@media (max-width: 768px) { body { flex-direction: column; } "
         "#filters { width: 100%; border-right: none; border-bottom: 1px solid #ddd; } }",
         "</style>",
@@ -284,6 +320,7 @@ def html(
         f"const TWEETS = {tweets_json};",
         f"const FACETS = {facets_json};",
         f"const THREAD_CONTEXT = {thread_context_json};",
+        "const TWEETS_MAP = Object.fromEntries(TWEETS.map(t => [t.id, t]));",
         "function escapeHtml(s) {",
         "  const div = document.createElement('div');",
         "  div.textContent = s;",
@@ -294,8 +331,34 @@ def html(
         "  try {",
         "    const urls = JSON.parse(urlsJson);",
         "    urls.forEach(u => { text = text.replace(u.url, u.expanded_url); });",
-        "  } catch (e) {}",
+        "  } catch (e) { console.warn('Failed to expand URLs:', e.message); }",
         "  return text;",
+        "}",
+        "function isValidMediaUrl(url) {",
+        "  return url && (url.startsWith('https://pbs.twimg.com/') "
+        "|| url.startsWith('https://video.twimg.com/'));",
+        "}",
+        "function isValidAvatarUrl(url) {",
+        "  return url && url.startsWith('https://pbs.twimg.com/');",
+        "}",
+        "let imagesEnabled = false;",
+        "function renderMedia(mediaJson) {",
+        "  if (!mediaJson) return '';",
+        "  try {",
+        "    const media = JSON.parse(mediaJson);",
+        "    return media.map(m => {",
+        "      const url = m.media_url_https || m.media_url;",
+        "      if (!isValidMediaUrl(url)) return '';",
+        "      if (imagesEnabled) {",
+        "        return `<img src='${url}' "
+        "style='max-width:100%;border-radius:8px;margin-top:8px'>`;",
+        "      }",
+        "      return `<div class='media-placeholder' data-src='${url}' "
+        'onclick=\'this.outerHTML=\\`<img src="${url}" '
+        'style="max-width:100%;border-radius:8px;margin-top:8px">\\`\'>'
+        "Click to load image</div>`;",
+        "    }).join('');",
+        "  } catch (e) { console.error('Failed to render media:', e.message); return ''; }",
         "}",
         "function getThreadText(tweet) {",
         "  const convId = tweet.conversation_id;",
@@ -330,9 +393,9 @@ def html(
         "    const dn = t.author_display_name || t.author_username;",
         "    const dt = t.created_at ? new Date(t.created_at).toLocaleString() : '';",
         "    const url = `https://x.com/${t.author_username}/status/${t.id}`;",
-        "    const av = t.author_avatar_url",
-        '      ? `<img src="${t.author_avatar_url}" alt="" width="48" height="48">`',
-        "      : '';",
+        "    const av = isValidAvatarUrl(t.author_avatar_url)",
+        '      ? `<img src="${t.author_avatar_url}" alt="" class="avatar">`',
+        "      : '<div class=\"avatar-placeholder\"></div>';",
         "    if (isThread) {",
         "      const threadHtml = threadTweets.map(th => {",
         "        const txt = expandUrls(th.text, th.urls_json);",
@@ -348,10 +411,21 @@ def html(
         "      </article>`;",
         "    }",
         "    const txt = expandUrls(t.text, t.urls_json);",
+        "    const rtHeader = t.is_retweet ? `<div class='retweet-header'>"
+        "\\U0001F501 Retweeted by @${escapeHtml(t.author_username)}</div>` : '';",
+        "    const qt = t.quoted_tweet_id ? TWEETS_MAP[t.quoted_tweet_id] : null;",
+        "    const qtHtml = (qt && qt.author_username && qt.text) ? `<div class='quoted-tweet'>"
+        "<p><strong>${escapeHtml(qt.author_display_name || qt.author_username)}</strong> "
+        "@${escapeHtml(qt.author_username)}</p>"
+        "<p>${escapeHtml(qt.text)}</p></div>` : "
+        "(t.quoted_tweet_id ? '<div class=\"quoted-tweet\">Quoted tweet unavailable</div>' : '');",
         "    return `<article>",
+        "      ${rtHeader}",
         "      ${av}",
         "      <p><strong>${escapeHtml(dn)}</strong> @${escapeHtml(t.author_username)}</p>",
         "      <p>${escapeHtml(txt)}</p>",
+        "      ${renderMedia(t.media_json)}",
+        "      ${qtHtml}",
         '      <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',
         "    </article>`;",
         "  }).join('');",
@@ -359,6 +433,13 @@ def html(
         "document.addEventListener('DOMContentLoaded', () => {",
         "  const search = document.getElementById('search');",
         "  search.addEventListener('input', () => renderTweets(filterTweets(search.value)));",
+        "  const loadBtn = document.getElementById('load-images');",
+        "  loadBtn.addEventListener('click', () => {",
+        "    imagesEnabled = true;",
+        "    loadBtn.disabled = true;",
+        "    loadBtn.textContent = 'Images Enabled';",
+        "    renderTweets(filterTweets(search.value));",
+        "  });",
         "  renderTweets(TWEETS);",
         "});",
         "</script>",
@@ -366,6 +447,7 @@ def html(
         "<body>",
         '<aside id="filters">',
         '<input type="search" id="search" placeholder="Search tweets...">',
+        '<button id="load-images">Load Images</button>',
         "</aside>",
         '<main id="tweets">',
         "</main>",

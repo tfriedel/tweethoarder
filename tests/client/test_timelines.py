@@ -744,6 +744,65 @@ def test_extract_tweet_data_extracts_author_avatar_url() -> None:
     assert result["author_avatar_url"] == "https://pbs.twimg.com/profile/abc.jpg"
 
 
+def test_extract_tweet_data_extracts_author_avatar_url_from_new_api_structure() -> None:
+    """extract_tweet_data should extract avatar from new API structure (avatar.image_url)."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "core": {"screen_name": "user", "name": "User"},
+                    "avatar": {"image_url": "https://pbs.twimg.com/profile/new_avatar.jpg"},
+                    "legacy": {},
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "Test tweet",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123",
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    assert result["author_avatar_url"] == "https://pbs.twimg.com/profile/new_avatar.jpg"
+
+
+def test_extract_tweet_data_prefers_new_api_avatar_over_legacy() -> None:
+    """extract_tweet_data should prefer new API avatar (avatar.image_url) over legacy."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "456",
+                    "core": {"screen_name": "user", "name": "User"},
+                    "avatar": {"image_url": "https://pbs.twimg.com/profile/new_avatar.jpg"},
+                    "legacy": {
+                        "profile_image_url_https": "https://pbs.twimg.com/profile/old_avatar.jpg"
+                    },
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "Test tweet",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123",
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    # New API avatar should be preferred over legacy
+    assert result["author_avatar_url"] == "https://pbs.twimg.com/profile/new_avatar.jpg"
+
+
 @pytest.mark.asyncio
 async def test_fetch_likes_page_retries_on_rate_limit() -> None:
     """fetch_likes_page should retry with backoff on 429 rate limit."""

@@ -18,7 +18,8 @@
       "Bash(bd create:*)",
       "Bash(grep:*)",
       "Bash(# Check the validator logic cat /home/linuxbrew/.linuxbrew/lib/node_modules/tdd-guard/dist/validation/validator.js)",
-      "Bash(# Check SDK query function head -100 /home/linuxbrew/.linuxbrew/lib/node_modules/tdd-guard/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs)"
+      "Bash(# Check SDK query function head -100 /home/linuxbrew/.linuxbrew/lib/node_modules/tdd-guard/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs)",
+      "Bash(bd dep add:*)"
     ],
     "deny": [],
     "ask": []
