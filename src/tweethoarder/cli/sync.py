@@ -1,5 +1,6 @@
 """Sync commands for TweetHoarder CLI."""
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -108,8 +109,6 @@ async def sync_likes_async(
                 if tweet_data is None:
                     continue
                 if store_raw:
-                    import json
-
                     tweet_data["raw_json"] = json.dumps(raw_tweet)
                 save_tweet(db_path, tweet_data)
                 add_to_collection(db_path, tweet_data["id"], "like", sort_index=sort_index)
@@ -225,8 +224,6 @@ async def sync_bookmarks_async(
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data:
                     if store_raw:
-                        import json
-
                         tweet_data["raw_json"] = json.dumps(raw_tweet)
                     save_tweet(db_path, tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "bookmark")
@@ -333,8 +330,6 @@ async def sync_tweets_async(
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data:
                     if store_raw:
-                        import json
-
                         tweet_data["raw_json"] = json.dumps(raw_tweet)
                     save_tweet(db_path, tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "tweet")
@@ -436,8 +431,6 @@ async def sync_reposts_async(
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data:
                     if store_raw:
-                        import json
-
                         tweet_data["raw_json"] = json.dumps(raw_tweet)
                     save_tweet(db_path, tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "repost")

@@ -124,7 +124,10 @@ def markdown(
     for tweet in tweets:
         conv_id = tweet.get("conversation_id")
         if conv_id and conv_id not in thread_context:
-            thread_context[conv_id] = get_tweets_by_conversation_id(db_path, conv_id)
+            try:
+                thread_context[conv_id] = get_tweets_by_conversation_id(db_path, conv_id)
+            except Exception:
+                thread_context[conv_id] = []
 
     content = export_tweets_to_markdown(
         tweets, collection=collection, thread_context=thread_context
@@ -223,7 +226,10 @@ def html(
     for tweet in tweets:
         conv_id = tweet.get("conversation_id")
         if conv_id and conv_id not in thread_context:
-            thread_context[conv_id] = get_tweets_by_conversation_id(db_path, conv_id)
+            try:
+                thread_context[conv_id] = get_tweets_by_conversation_id(db_path, conv_id)
+            except Exception:
+                thread_context[conv_id] = []
 
     import json
     from collections import Counter
@@ -325,8 +331,15 @@ def html(
         "  try {",
         "    const urls = JSON.parse(urlsJson);",
         "    urls.forEach(u => { text = text.replace(u.url, u.expanded_url); });",
-        "  } catch (e) {}",
+        "  } catch (e) { console.warn('Failed to expand URLs:', e.message); }",
         "  return text;",
+        "}",
+        "function isValidMediaUrl(url) {",
+        "  return url && (url.startsWith('https://pbs.twimg.com/') "
+        "|| url.startsWith('https://video.twimg.com/'));",
+        "}",
+        "function isValidAvatarUrl(url) {",
+        "  return url && url.startsWith('https://pbs.twimg.com/');",
         "}",
         "let imagesEnabled = false;",
         "function renderMedia(mediaJson) {",
@@ -335,6 +348,7 @@ def html(
         "    const media = JSON.parse(mediaJson);",
         "    return media.map(m => {",
         "      const url = m.media_url_https || m.media_url;",
+        "      if (!isValidMediaUrl(url)) return '';",
         "      if (imagesEnabled) {",
         "        return `<img src='${url}' "
         "style='max-width:100%;border-radius:8px;margin-top:8px'>`;",
@@ -344,7 +358,7 @@ def html(
         'style="max-width:100%;border-radius:8px;margin-top:8px">\\`\'>'
         "Click to load image</div>`;",
         "    }).join('');",
-        "  } catch (e) { return ''; }",
+        "  } catch (e) { console.error('Failed to render media:', e.message); return ''; }",
         "}",
         "function getThreadText(tweet) {",
         "  const convId = tweet.conversation_id;",
@@ -379,7 +393,7 @@ def html(
         "    const dn = t.author_display_name || t.author_username;",
         "    const dt = t.created_at ? new Date(t.created_at).toLocaleString() : '';",
         "    const url = `https://x.com/${t.author_username}/status/${t.id}`;",
-        "    const av = t.author_avatar_url",
+        "    const av = isValidAvatarUrl(t.author_avatar_url)",
         '      ? `<img src="${t.author_avatar_url}" alt="" class="avatar">`',
         "      : '<div class=\"avatar-placeholder\"></div>';",
         "    if (isThread) {",
@@ -400,10 +414,11 @@ def html(
         "    const rtHeader = t.is_retweet ? `<div class='retweet-header'>"
         "\\U0001F501 Retweeted by @${escapeHtml(t.author_username)}</div>` : '';",
         "    const qt = t.quoted_tweet_id ? TWEETS_MAP[t.quoted_tweet_id] : null;",
-        "    const qtHtml = qt ? `<div class='quoted-tweet'>"
+        "    const qtHtml = (qt && qt.author_username && qt.text) ? `<div class='quoted-tweet'>"
         "<p><strong>${escapeHtml(qt.author_display_name || qt.author_username)}</strong> "
         "@${escapeHtml(qt.author_username)}</p>"
-        "<p>${escapeHtml(qt.text)}</p></div>` : '';",
+        "<p>${escapeHtml(qt.text)}</p></div>` : "
+        "(t.quoted_tweet_id ? '<div class=\"quoted-tweet\">Quoted tweet unavailable</div>' : '');",
         "    return `<article>",
         "      ${rtHeader}",
         "      ${av}",

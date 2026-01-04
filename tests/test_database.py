@@ -611,6 +611,38 @@ def test_save_tweet_stores_media_json(tmp_path: Path) -> None:
     assert "pbs.twimg.com" in row[0]
 
 
+def test_get_tweets_by_collection_returns_media_json(tmp_path: Path) -> None:
+    """get_tweets_by_collection should return media_json field in results."""
+    from tweethoarder.storage.database import (
+        add_to_collection,
+        get_tweets_by_collection,
+        init_database,
+        save_tweet,
+    )
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "123",
+            "text": "Check this photo",
+            "author_id": "456",
+            "author_username": "user",
+            "created_at": "2025-01-01T12:00:00Z",
+            "media_json": '[{"type": "photo", "media_url_https": "https://pbs.twimg.com/img.jpg"}]',
+        },
+    )
+    add_to_collection(db_path, "123", "likes")
+
+    tweets = get_tweets_by_collection(db_path, "likes")
+
+    assert len(tweets) == 1
+    assert tweets[0]["media_json"] is not None
+    assert "pbs.twimg.com" in tweets[0]["media_json"]
+
+
 def test_get_tweets_by_conversation_id_returns_matching_tweets(tmp_path: Path) -> None:
     """get_tweets_by_conversation_id returns tweets with matching conversation_id."""
     from tweethoarder.storage.database import (
