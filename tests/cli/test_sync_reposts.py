@@ -254,66 +254,70 @@ def test_reposts_command_passes_thread_mode_to_async() -> None:
         assert call_kwargs.get("thread_mode") == "conversation"
 
 
-@pytest.mark.asyncio
-async def test_sync_reposts_async_fetches_threads_when_enabled(tmp_path: Path) -> None:
-    """sync_reposts_async should fetch threads when with_threads=True."""
-    from unittest.mock import AsyncMock, MagicMock, patch
+def _make_repost_entry(tweet_id: str, text: str = "RT @other: Repost") -> dict:
+    """Create a mock repost entry for testing."""
+    return {
+        "entryId": f"tweet-{tweet_id}",
+        "content": {
+            "itemContent": {
+                "tweet_results": {
+                    "result": {
+                        "rest_id": tweet_id,
+                        "legacy": {
+                            "full_text": text,
+                            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+                            "conversation_id_str": tweet_id,
+                            "retweeted_status_result": {"result": {"rest_id": "789"}},
+                        },
+                        "core": {
+                            "user_results": {
+                                "result": {
+                                    "rest_id": "456",
+                                    "core": {"screen_name": "testuser", "name": "Test"},
+                                }
+                            }
+                        },
+                    }
+                }
+            },
+        },
+    }
 
-    from tweethoarder.cli.sync import sync_reposts_async
 
-    db_path = tmp_path / "test.db"
-
-    # Response with a repost
-    mock_response = {
+def _make_reposts_response(entries: list) -> dict:
+    """Create a mock user reposts API response."""
+    return {
         "data": {
             "user": {
                 "result": {
                     "timeline_v2": {
                         "timeline": {
-                            "instructions": [
-                                {
-                                    "type": "TimelineAddEntries",
-                                    "entries": [
-                                        {
-                                            "entryId": "tweet-456",
-                                            "content": {
-                                                "itemContent": {
-                                                    "tweet_results": {
-                                                        "result": {
-                                                            "rest_id": "456",
-                                                            "legacy": {
-                                                                "full_text": "RT @other: Repost",
-                                                                "created_at": "Wed Jan 01 12:00:00 +0000 2025",  # noqa: E501
-                                                                "conversation_id_str": "456",
-                                                                "retweeted_status_result": {
-                                                                    "result": {"rest_id": "789"}
-                                                                },
-                                                            },
-                                                            "core": {
-                                                                "user_results": {
-                                                                    "result": {
-                                                                        "rest_id": "456",
-                                                                        "core": {
-                                                                            "screen_name": "testuser",  # noqa: E501
-                                                                            "name": "Test",
-                                                                        },
-                                                                    }
-                                                                }
-                                                            },
-                                                        }
-                                                    }
-                                                }
-                                            },
-                                        },
-                                    ],
-                                }
-                            ]
+                            "instructions": [{"type": "TimelineAddEntries", "entries": entries}]
                         }
                     }
                 }
             }
         }
     }
+
+
+@pytest.mark.asyncio
+async def test_sync_reposts_async_fetches_threads_for_all_synced_tweets(tmp_path: Path) -> None:
+    """sync_reposts_async should fetch threads for ALL synced reposts, not just the last one."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_reposts_async
+
+    db_path = tmp_path / "test.db"
+
+    # Response with 3 reposts
+    mock_response = _make_reposts_response(
+        [
+            _make_repost_entry("111", "RT @a: First"),
+            _make_repost_entry("222", "RT @b: Second"),
+            _make_repost_entry("333", "RT @c: Third"),
+        ]
+    )
 
     with (
         patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies,
@@ -339,6 +343,8 @@ async def test_sync_reposts_async_fetches_threads_when_enabled(tmp_path: Path) -
 
         await sync_reposts_async(db_path, count=10, with_threads=True)
 
-        mock_fetch_thread.assert_called_once()
-        call_args = mock_fetch_thread.call_args
-        assert call_args[1]["tweet_id"] == "456"
+        # Should be called 3 times - once for each synced repost
+        assert mock_fetch_thread.call_count == 3
+        # Verify each tweet ID was passed
+        call_tweet_ids = [call[1]["tweet_id"] for call in mock_fetch_thread.call_args_list]
+        assert set(call_tweet_ids) == {"111", "222", "333"}

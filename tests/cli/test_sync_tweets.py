@@ -331,66 +331,76 @@ def test_tweets_command_passes_thread_mode_to_async() -> None:
         assert call_kwargs.get("thread_mode") == "conversation"
 
 
-@pytest.mark.asyncio
-async def test_sync_tweets_async_fetches_threads_when_enabled(tmp_path: Path) -> None:
-    """sync_tweets_async should fetch threads when with_threads=True."""
-    from unittest.mock import AsyncMock, MagicMock, patch
+def _make_tweet_entry(tweet_id: str, text: str = "Hello") -> dict:
+    """Create a mock tweet entry for testing."""
+    return {
+        "entryId": f"tweet-{tweet_id}",
+        "content": {
+            "itemContent": {
+                "tweet_results": {
+                    "result": {
+                        "rest_id": tweet_id,
+                        "legacy": {
+                            "full_text": text,
+                            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+                            "conversation_id_str": tweet_id,
+                            "reply_count": 0,
+                            "retweet_count": 0,
+                            "favorite_count": 0,
+                            "quote_count": 0,
+                        },
+                        "core": {
+                            "user_results": {
+                                "result": {
+                                    "rest_id": "456",
+                                    "core": {
+                                        "screen_name": "testuser",
+                                        "name": "Test User",
+                                    },
+                                }
+                            }
+                        },
+                    }
+                }
+            },
+        },
+    }
 
-    from tweethoarder.cli.sync import sync_tweets_async
 
-    db_path = tmp_path / "test.db"
-
-    mock_response = {
+def _make_tweets_response(entries: list) -> dict:
+    """Create a mock user tweets API response."""
+    return {
         "data": {
             "user": {
                 "result": {
                     "timeline_v2": {
                         "timeline": {
-                            "instructions": [
-                                {
-                                    "type": "TimelineAddEntries",
-                                    "entries": [
-                                        {
-                                            "entryId": "tweet-123",
-                                            "content": {
-                                                "itemContent": {
-                                                    "tweet_results": {
-                                                        "result": {
-                                                            "rest_id": "123",
-                                                            "legacy": {
-                                                                "full_text": "Hello world",
-                                                                "created_at": "Wed Jan 01 12:00:00 +0000 2025",  # noqa: E501
-                                                                "conversation_id_str": "123",
-                                                                "reply_count": 0,
-                                                                "retweet_count": 0,
-                                                                "favorite_count": 0,
-                                                                "quote_count": 0,
-                                                            },
-                                                            "core": {
-                                                                "user_results": {
-                                                                    "result": {
-                                                                        "rest_id": "456",
-                                                                        "core": {
-                                                                            "screen_name": "testuser",  # noqa: E501
-                                                                            "name": "Test User",
-                                                                        },
-                                                                    }
-                                                                }
-                                                            },
-                                                        }
-                                                    }
-                                                }
-                                            },
-                                        }
-                                    ],
-                                }
-                            ]
+                            "instructions": [{"type": "TimelineAddEntries", "entries": entries}]
                         }
                     }
                 }
             }
         }
     }
+
+
+@pytest.mark.asyncio
+async def test_sync_tweets_async_fetches_threads_for_all_synced_tweets(tmp_path: Path) -> None:
+    """sync_tweets_async should fetch threads for ALL synced tweets, not just the last one."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_tweets_async
+
+    db_path = tmp_path / "test.db"
+
+    # Create response with 3 tweets
+    mock_response = _make_tweets_response(
+        [
+            _make_tweet_entry("111", "First"),
+            _make_tweet_entry("222", "Second"),
+            _make_tweet_entry("333", "Third"),
+        ]
+    )
 
     with (
         patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies,
@@ -416,6 +426,8 @@ async def test_sync_tweets_async_fetches_threads_when_enabled(tmp_path: Path) ->
 
         await sync_tweets_async(db_path, count=10, with_threads=True)
 
-        mock_fetch_thread.assert_called_once()
-        call_args = mock_fetch_thread.call_args
-        assert call_args[1]["tweet_id"] == "123"
+        # Should be called 3 times - once for each synced tweet
+        assert mock_fetch_thread.call_count == 3
+        # Verify each tweet ID was passed
+        call_tweet_ids = [call[1]["tweet_id"] for call in mock_fetch_thread.call_args_list]
+        assert set(call_tweet_ids) == {"111", "222", "333"}

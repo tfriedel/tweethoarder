@@ -467,14 +467,21 @@ async def test_sync_likes_async_resumes_from_checkpoint(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_sync_likes_async_fetches_threads_when_enabled(tmp_path: Path) -> None:
-    """sync_likes_async should fetch threads for synced tweets when with_threads=True."""
+async def test_sync_likes_async_fetches_threads_for_all_synced_tweets(tmp_path: Path) -> None:
+    """sync_likes_async should fetch threads for ALL synced tweets, not just the last one."""
     from unittest.mock import AsyncMock, MagicMock, patch
 
     from tweethoarder.cli.sync import sync_likes_async
 
     db_path = tmp_path / "test.db"
-    mock_response = _make_likes_response([_make_tweet_entry("123", "Hello")])
+    # Create response with 3 tweets
+    mock_response = _make_likes_response(
+        [
+            _make_tweet_entry("111", "First"),
+            _make_tweet_entry("222", "Second"),
+            _make_tweet_entry("333", "Third"),
+        ]
+    )
 
     mock_http_response = MagicMock()
     mock_http_response.json.return_value = mock_response
@@ -491,6 +498,8 @@ async def test_sync_likes_async_fetches_threads_when_enabled(tmp_path: Path) -> 
 
                 await sync_likes_async(db_path=db_path, count=10, with_threads=True)
 
-                mock_fetch_thread.assert_called_once()
-                call_args = mock_fetch_thread.call_args
-                assert call_args[1]["tweet_id"] == "123"
+                # Should be called 3 times - once for each synced tweet
+                assert mock_fetch_thread.call_count == 3
+                # Verify each tweet ID was passed
+                call_tweet_ids = [call[1]["tweet_id"] for call in mock_fetch_thread.call_args_list]
+                assert set(call_tweet_ids) == {"111", "222", "333"}

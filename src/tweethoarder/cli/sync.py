@@ -74,6 +74,7 @@ async def sync_likes_async(
     saved_checkpoint = checkpoint.load("like")
     cursor: str | None = saved_checkpoint.cursor if saved_checkpoint else None
     last_tweet_id: str | None = None
+    synced_tweet_ids: list[str] = []
 
     async with httpx.AsyncClient(headers=headers) as http_client:
 
@@ -105,6 +106,7 @@ async def sync_likes_async(
                 save_tweet(db_path, tweet_data)
                 add_to_collection(db_path, tweet_data["id"], "like")
                 last_tweet_id = tweet_data["id"]
+                synced_tweet_ids.append(tweet_data["id"])
                 synced_count += 1
 
             # Save checkpoint after each page for resume capability
@@ -117,9 +119,10 @@ async def sync_likes_async(
     # Clear checkpoint on successful completion
     checkpoint.clear("like")
 
-    # Fetch threads for synced tweets if enabled
-    if with_threads and last_tweet_id:
-        await fetch_thread_async(db_path=db_path, tweet_id=last_tweet_id, mode=thread_mode)
+    # Fetch threads for all synced tweets if enabled
+    if with_threads:
+        for tweet_id in synced_tweet_ids:
+            await fetch_thread_async(db_path=db_path, tweet_id=tweet_id, mode=thread_mode)
 
     return {"synced_count": synced_count}
 
@@ -177,6 +180,7 @@ async def sync_bookmarks_async(
     saved_checkpoint = checkpoint.load("bookmark")
     cursor: str | None = saved_checkpoint.cursor if saved_checkpoint else None
     last_tweet_id: str | None = None
+    synced_tweet_ids: list[str] = []
 
     async with httpx.AsyncClient(headers=headers) as http_client:
 
@@ -206,6 +210,7 @@ async def sync_bookmarks_async(
                     save_tweet(db_path, tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "bookmark")
                     last_tweet_id = tweet_data["id"]
+                    synced_tweet_ids.append(tweet_data["id"])
                     synced_count += 1
 
             # Save checkpoint after each page for resume capability
@@ -218,9 +223,10 @@ async def sync_bookmarks_async(
     # Clear checkpoint on successful completion
     checkpoint.clear("bookmark")
 
-    # Fetch threads for synced tweets if enabled
-    if with_threads and last_tweet_id:
-        await fetch_thread_async(db_path=db_path, tweet_id=last_tweet_id, mode=thread_mode)
+    # Fetch threads for all synced tweets if enabled
+    if with_threads:
+        for tweet_id in synced_tweet_ids:
+            await fetch_thread_async(db_path=db_path, tweet_id=tweet_id, mode=thread_mode)
 
     return {"synced_count": synced_count}
 
@@ -276,7 +282,7 @@ async def sync_tweets_async(
     synced_count = 0
     headers = client.get_base_headers()
     cursor: str | None = None
-    last_tweet_id: str | None = None
+    synced_tweet_ids: list[str] = []
 
     async with httpx.AsyncClient(headers=headers) as http_client:
         while synced_count < count:
@@ -298,15 +304,16 @@ async def sync_tweets_async(
                 if tweet_data:
                     save_tweet(db_path, tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "tweet")
-                    last_tweet_id = tweet_data["id"]
+                    synced_tweet_ids.append(tweet_data["id"])
                     synced_count += 1
 
             if not cursor:
                 break
 
-    # Fetch threads for synced tweets if enabled
-    if with_threads and last_tweet_id:
-        await fetch_thread_async(db_path=db_path, tweet_id=last_tweet_id, mode=thread_mode)
+    # Fetch threads for all synced tweets if enabled
+    if with_threads:
+        for tweet_id in synced_tweet_ids:
+            await fetch_thread_async(db_path=db_path, tweet_id=tweet_id, mode=thread_mode)
 
     return {"synced_count": synced_count}
 
@@ -363,7 +370,7 @@ async def sync_reposts_async(
     synced_count = 0
     headers = client.get_base_headers()
     cursor: str | None = None
-    last_tweet_id: str | None = None
+    synced_tweet_ids: list[str] = []
 
     async with httpx.AsyncClient(headers=headers) as http_client:
         while synced_count < count:
@@ -387,15 +394,16 @@ async def sync_reposts_async(
                 if tweet_data:
                     save_tweet(db_path, tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "repost")
-                    last_tweet_id = tweet_data["id"]
+                    synced_tweet_ids.append(tweet_data["id"])
                     synced_count += 1
 
             if not cursor:
                 break
 
-    # Fetch threads for synced tweets if enabled
-    if with_threads and last_tweet_id:
-        await fetch_thread_async(db_path=db_path, tweet_id=last_tweet_id, mode=thread_mode)
+    # Fetch threads for all synced tweets if enabled
+    if with_threads:
+        for tweet_id in synced_tweet_ids:
+            await fetch_thread_async(db_path=db_path, tweet_id=tweet_id, mode=thread_mode)
 
     return {"synced_count": synced_count}
 
