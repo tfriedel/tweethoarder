@@ -4,6 +4,7 @@ import typer
 
 from tweethoarder.cli import config, export, sync
 from tweethoarder.cli import stats as stats_module
+from tweethoarder.cli.thread import fetch_thread_async
 from tweethoarder.config import get_config_dir
 from tweethoarder.query_ids.scraper import refresh_query_ids
 
@@ -26,10 +27,21 @@ def stats() -> None:
 @app.command()
 def thread(
     tweet_id: str = typer.Argument(..., help="Tweet ID to fetch thread context for."),
+    mode: str = typer.Option(
+        "thread", "--mode", "-m", help="Mode: thread (author only) or conversation (all)."
+    ),
+    limit: int = typer.Option(200, "--limit", "-l", help="Maximum tweets to fetch."),
     depth: int = typer.Option(5, "--depth", "-d", help="Maximum depth of thread to fetch."),
 ) -> None:
     """Fetch thread context for a tweet."""
-    typer.echo(f"Fetching thread for tweet {tweet_id} (depth: {depth})")
+    import asyncio
+
+    from tweethoarder.storage.database import get_db_path
+
+    typer.echo(f"Fetching {mode} for tweet {tweet_id}...")
+    db_path = get_db_path()
+    result = asyncio.run(fetch_thread_async(db_path, tweet_id, mode, limit))
+    typer.echo(f"Saved {result['tweet_count']} tweets.")
 
 
 @app.command(name="refresh-ids")

@@ -574,3 +574,183 @@ async def test_fetch_likes_page_retries_after_404_refresh_on_last_attempt() -> N
     refresh_callback.assert_called_once()
     assert mock_client.get.call_count == 2  # 1 attempt + 1 retry after refresh
     assert "data" in result
+
+
+def test_build_tweet_detail_url_includes_query_id() -> None:
+    """build_tweet_detail_url should include the TweetDetail query ID in the path."""
+    from tweethoarder.client.timelines import build_tweet_detail_url
+
+    url = build_tweet_detail_url(query_id="DETAIL123", tweet_id="123456789")
+
+    assert "DETAIL123" in url
+    assert "/graphql/" in url
+
+
+def test_build_tweet_detail_url_includes_tweet_id() -> None:
+    """build_tweet_detail_url should include the tweet ID in variables."""
+    from tweethoarder.client.timelines import build_tweet_detail_url
+
+    url = build_tweet_detail_url(query_id="DETAIL123", tweet_id="123456789")
+
+    assert "focalTweetId" in url
+    assert "123456789" in url
+
+
+def test_fetch_tweet_detail_page_exists() -> None:
+    """fetch_tweet_detail_page function should be importable."""
+    from tweethoarder.client.timelines import fetch_tweet_detail_page
+
+    assert callable(fetch_tweet_detail_page)
+
+
+@pytest.mark.asyncio
+async def test_fetch_tweet_detail_page_returns_dict() -> None:
+    """fetch_tweet_detail_page should return parsed JSON response."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_tweet_detail_page
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"data": {"tweetResult": {}}}
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_response
+
+    result = await fetch_tweet_detail_page(
+        client=mock_client,
+        query_id="DETAIL123",
+        tweet_id="123456789",
+    )
+
+    assert isinstance(result, dict)
+    assert "data" in result
+
+
+def test_parse_tweet_detail_response_exists() -> None:
+    """parse_tweet_detail_response function should be importable."""
+    from tweethoarder.client.timelines import parse_tweet_detail_response
+
+    assert callable(parse_tweet_detail_response)
+
+
+def test_parse_tweet_detail_response_extracts_tweets() -> None:
+    """parse_tweet_detail_response should extract tweets from conversation."""
+    from tweethoarder.client.timelines import parse_tweet_detail_response
+
+    response = {
+        "data": {
+            "threaded_conversation_with_injections_v2": {
+                "instructions": [
+                    {
+                        "type": "TimelineAddEntries",
+                        "entries": [
+                            {
+                                "entryId": "tweet-123",
+                                "content": {
+                                    "itemContent": {
+                                        "tweet_results": {
+                                            "result": {
+                                                "rest_id": "123",
+                                                "legacy": {"full_text": "Hello"},
+                                            }
+                                        }
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+    }
+
+    tweets = parse_tweet_detail_response(response)
+
+    assert len(tweets) == 1
+    assert tweets[0]["rest_id"] == "123"
+
+
+def test_get_focal_tweet_author_id_exists() -> None:
+    """get_focal_tweet_author_id function should be importable."""
+    from tweethoarder.client.timelines import get_focal_tweet_author_id
+
+    assert callable(get_focal_tweet_author_id)
+
+
+def test_get_focal_tweet_author_id_returns_author() -> None:
+    """get_focal_tweet_author_id should return author ID of focal tweet."""
+    from tweethoarder.client.timelines import get_focal_tweet_author_id
+
+    response = {
+        "data": {
+            "threaded_conversation_with_injections_v2": {
+                "instructions": [
+                    {
+                        "type": "TimelineAddEntries",
+                        "entries": [
+                            {
+                                "entryId": "tweet-123",
+                                "content": {
+                                    "itemContent": {
+                                        "tweet_results": {
+                                            "result": {
+                                                "rest_id": "123",
+                                                "core": {
+                                                    "user_results": {
+                                                        "result": {"rest_id": "author456"}
+                                                    }
+                                                },
+                                            }
+                                        }
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+    }
+
+    author_id = get_focal_tweet_author_id(response, "123")
+
+    assert author_id == "author456"
+
+
+def test_filter_tweets_by_mode_exists() -> None:
+    """filter_tweets_by_mode function should be importable."""
+    from tweethoarder.client.timelines import filter_tweets_by_mode
+
+    assert callable(filter_tweets_by_mode)
+
+
+def test_filter_tweets_by_mode_thread_filters_by_author() -> None:
+    """filter_tweets_by_mode in thread mode should only keep author's tweets."""
+    from tweethoarder.client.timelines import filter_tweets_by_mode
+
+    tweets = [
+        {"rest_id": "1", "core": {"user_results": {"result": {"rest_id": "author1"}}}},
+        {"rest_id": "2", "core": {"user_results": {"result": {"rest_id": "author2"}}}},
+        {"rest_id": "3", "core": {"user_results": {"result": {"rest_id": "author1"}}}},
+    ]
+
+    filtered = filter_tweets_by_mode(tweets, "thread", "author1")
+
+    assert len(filtered) == 2
+    assert filtered[0]["rest_id"] == "1"
+    assert filtered[1]["rest_id"] == "3"
+
+
+def test_filter_tweets_by_mode_conversation_keeps_all() -> None:
+    """filter_tweets_by_mode in conversation mode should keep all tweets."""
+    from tweethoarder.client.timelines import filter_tweets_by_mode
+
+    tweets = [
+        {"rest_id": "1", "core": {"user_results": {"result": {"rest_id": "author1"}}}},
+        {"rest_id": "2", "core": {"user_results": {"result": {"rest_id": "author2"}}}},
+    ]
+
+    filtered = filter_tweets_by_mode(tweets, "conversation", "author1")
+
+    assert len(filtered) == 2

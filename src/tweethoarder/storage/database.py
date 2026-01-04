@@ -107,6 +107,14 @@ INDEXES = [
 ]
 
 
+def get_db_path() -> Path:
+    """Get the default database path."""
+    from tweethoarder.config import get_data_dir
+
+    data_dir: Path = get_data_dir()
+    return data_dir / "tweethoarder.db"
+
+
 def init_database(db_path: Path) -> None:
     """Initialize the SQLite database."""
     with sqlite3.connect(db_path) as conn:
