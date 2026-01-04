@@ -97,7 +97,7 @@ def show_stats() -> None:
                 "GROUP BY bookmark_folder_name"
             )
             for folder, count in cursor.fetchall():
-                lines.append(f"  - {folder}: {count}")
+                lines.append(f"  - {folder}: {count:,}")
 
     lines.extend(
         [

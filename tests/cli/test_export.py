@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from conftest import strip_ansi
 from typer.testing import CliRunner
 
@@ -428,7 +429,9 @@ def test_export_json_has_folder_option() -> None:
     assert "--folder" in strip_ansi(result.output)
 
 
-def test_export_json_folder_filters_bookmarks(tmp_path: Path, monkeypatch: object) -> None:
+def test_export_json_folder_filters_bookmarks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Export json with --folder should only include bookmarks from that folder."""
     import json
     import sqlite3
@@ -503,3 +506,24 @@ def test_export_json_folder_filters_bookmarks(tmp_path: Path, monkeypatch: objec
     # Should only include the Work bookmark
     assert len(content["tweets"]) == 1
     assert content["tweets"][0]["id"] == "work_tweet"
+
+
+def test_export_markdown_has_folder_option() -> None:
+    """Export markdown command should have --folder option."""
+    result = runner.invoke(app, ["export", "markdown", "--help"])
+    assert result.exit_code == 0
+    assert "--folder" in strip_ansi(result.output)
+
+
+def test_export_csv_has_folder_option() -> None:
+    """Export csv command should have --folder option."""
+    result = runner.invoke(app, ["export", "csv", "--help"])
+    assert result.exit_code == 0
+    assert "--folder" in strip_ansi(result.output)
+
+
+def test_export_html_has_folder_option() -> None:
+    """Export html command should have --folder option."""
+    result = runner.invoke(app, ["export", "html", "--help"])
+    assert result.exit_code == 0
+    assert "--folder" in strip_ansi(result.output)
