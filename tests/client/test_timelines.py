@@ -270,10 +270,55 @@ def test_parse_likes_response_extracts_tweets() -> None:
         }
     }
 
-    tweets, _cursor = parse_likes_response(response)
+    entries, _cursor = parse_likes_response(response)
 
-    assert len(tweets) == 1
-    assert tweets[0]["rest_id"] == "123"
+    assert len(entries) == 1
+    assert entries[0]["tweet"]["rest_id"] == "123"
+
+
+def test_parse_likes_response_extracts_sort_index() -> None:
+    """parse_likes_response should extract sortIndex for preserving like order."""
+    from tweethoarder.client.timelines import parse_likes_response
+
+    response = {
+        "data": {
+            "user": {
+                "result": {
+                    "timeline": {
+                        "timeline": {
+                            "instructions": [
+                                {
+                                    "type": "TimelineAddEntries",
+                                    "entries": [
+                                        {
+                                            "entryId": "tweet-123",
+                                            "sortIndex": "2007662285526401024",
+                                            "content": {
+                                                "entryType": "TimelineTimelineItem",
+                                                "itemContent": {
+                                                    "tweet_results": {
+                                                        "result": {
+                                                            "rest_id": "123",
+                                                            "legacy": {"full_text": "Hello"},
+                                                        }
+                                                    }
+                                                },
+                                            },
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    entries, _cursor = parse_likes_response(response)
+
+    assert len(entries) == 1
+    assert entries[0]["sort_index"] == "2007662285526401024"
 
 
 def test_parse_likes_response_extracts_cursor() -> None:

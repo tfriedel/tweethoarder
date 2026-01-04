@@ -166,6 +166,39 @@ def test_add_to_collection_inserts_into_collections(tmp_path: Path) -> None:
     assert row[1] == "like"
 
 
+def test_add_to_collection_stores_sort_index(tmp_path: Path) -> None:
+    """add_to_collection should store sort_index when provided."""
+    from tweethoarder.storage.database import (
+        add_to_collection,
+        init_database,
+        save_tweet,
+    )
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    tweet_data = {
+        "id": "123456789",
+        "text": "Hello!",
+        "author_id": "987654321",
+        "author_username": "testuser",
+        "created_at": "2025-01-01T12:00:00Z",
+    }
+    save_tweet(db_path, tweet_data)
+    add_to_collection(db_path, "123456789", "like", sort_index="2007662285526401024")
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute(
+        "SELECT sort_index FROM collections WHERE tweet_id = ?",
+        ("123456789",),
+    )
+    row = cursor.fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] == "2007662285526401024"
+
+
 def test_save_tweet_preserves_first_seen_at_on_update(tmp_path: Path) -> None:
     """save_tweet should preserve first_seen_at when updating existing tweet."""
     import time
@@ -302,6 +335,57 @@ def test_get_tweets_by_collection_returns_tweets(tmp_path: Path) -> None:
     assert tweets[0]["text"] == "Hello!"
 
 
+def test_get_tweets_by_collection_orders_by_sort_index(tmp_path: Path) -> None:
+    """get_tweets_by_collection should order by sort_index descending."""
+    import time
+
+    from tweethoarder.storage.database import (
+        add_to_collection,
+        get_tweets_by_collection,
+        init_database,
+        save_tweet,
+    )
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Create two tweets
+    save_tweet(
+        db_path,
+        {
+            "id": "1",
+            "text": "First liked",
+            "author_id": "100",
+            "author_username": "user1",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    save_tweet(
+        db_path,
+        {
+            "id": "2",
+            "text": "Second liked",
+            "author_id": "100",
+            "author_username": "user1",
+            "created_at": "2025-01-02T12:00:00Z",
+        },
+    )
+
+    # Add with sort_index - tweet "1" has HIGHER sort_index (more recently liked)
+    # but is added FIRST (earlier added_at), so if ordering by added_at, "2" would be first
+    add_to_collection(db_path, "1", "like", sort_index="2000")
+    time.sleep(0.01)  # Ensure different added_at timestamps
+    add_to_collection(db_path, "2", "like", sort_index="1000")
+
+    tweets = get_tweets_by_collection(db_path, "like")
+
+    # Should be ordered by sort_index DESC (2000 before 1000)
+    # If ordered by added_at DESC, "2" would be first (wrong)
+    assert len(tweets) == 2
+    assert tweets[0]["id"] == "1"  # Higher sort_index first
+    assert tweets[1]["id"] == "2"
+
+
 def test_init_database_creates_threads_table(tmp_path: Path) -> None:
     """Database should have a threads table for storing thread/conversation metadata."""
     from tweethoarder.storage.database import init_database
@@ -350,6 +434,21 @@ def test_get_db_path_exists() -> None:
     from tweethoarder.storage.database import get_db_path
 
     assert callable(get_db_path)
+
+
+def test_collections_table_has_sort_index_column(tmp_path: Path) -> None:
+    """Collections table should have sort_index column for preserving Twitter order."""
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("PRAGMA table_info(collections)")
+    columns = {row[1] for row in cursor.fetchall()}
+    conn.close()
+
+    assert "sort_index" in columns
 
 
 def test_get_tweets_by_bookmark_folder_filters_by_folder(tmp_path: Path) -> None:
