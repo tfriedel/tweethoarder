@@ -104,6 +104,7 @@ def markdown(
         get_all_tweets,
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
+        get_tweets_by_conversation_id,
     )
 
     data_dir = get_data_dir()
@@ -118,7 +119,16 @@ def markdown(
     else:
         tweets = get_all_tweets(db_path)
 
-    content = export_tweets_to_markdown(tweets, collection=collection)
+    # Build thread context for tweets with conversation_id
+    thread_context: dict[str, list[dict[str, Any]]] = {}
+    for tweet in tweets:
+        conv_id = tweet.get("conversation_id")
+        if conv_id and conv_id not in thread_context:
+            thread_context[conv_id] = get_tweets_by_conversation_id(db_path, conv_id)
+
+    content = export_tweets_to_markdown(
+        tweets, collection=collection, thread_context=thread_context
+    )
 
     output_path = output or _get_default_export_path(data_dir, collection, "md")
     output_path.write_text(content)
@@ -193,6 +203,7 @@ def html(
         get_all_tweets,
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
+        get_tweets_by_conversation_id,
     )
 
     data_dir = get_data_dir()
@@ -206,6 +217,13 @@ def html(
         tweets = get_tweets_by_collection(db_path, collection_type)
     else:
         tweets = get_all_tweets(db_path)
+
+    # Build thread context for tweets with conversation_id
+    thread_context: dict[str, list[dict[str, Any]]] = {}
+    for tweet in tweets:
+        conv_id = tweet.get("conversation_id")
+        if conv_id and conv_id not in thread_context:
+            thread_context[conv_id] = get_tweets_by_conversation_id(db_path, conv_id)
 
     import json
     from collections import Counter
@@ -248,6 +266,7 @@ def html(
         "media": media_counts,
     }
     facets_json = json.dumps(facets)
+    thread_context_json = json.dumps(thread_context)
 
     lines = [
         "<!DOCTYPE html>",
@@ -264,20 +283,78 @@ def html(
         "<script>",
         f"const TWEETS = {tweets_json};",
         f"const FACETS = {facets_json};",
+        f"const THREAD_CONTEXT = {thread_context_json};",
         "function escapeHtml(s) {",
         "  const div = document.createElement('div');",
         "  div.textContent = s;",
         "  return div.innerHTML;",
         "}",
+        "function expandUrls(text, urlsJson) {",
+        "  if (!urlsJson) return text;",
+        "  try {",
+        "    const urls = JSON.parse(urlsJson);",
+        "    urls.forEach(u => { text = text.replace(u.url, u.expanded_url); });",
+        "  } catch (e) {}",
+        "  return text;",
+        "}",
+        "function getThreadText(tweet) {",
+        "  const convId = tweet.conversation_id;",
+        "  if (!convId || !THREAD_CONTEXT[convId]) return '';",
+        "  return THREAD_CONTEXT[convId].map(t => t.text).join(' ');",
+        "}",
         "function filterTweets(query) {",
-        "  return TWEETS.filter(t => "
-        "!query || t.text.toLowerCase().includes(query.toLowerCase()));",
+        "  if (!query) return TWEETS;",
+        "  const q = query.toLowerCase();",
+        "  return TWEETS.filter(t => {",
+        "    const mainText = t.text.toLowerCase();",
+        "    const threadText = getThreadText(t).toLowerCase();",
+        "    return mainText.includes(q) || threadText.includes(q);",
+        "  });",
+        "}",
+        "function getThreadTweets(tweet) {",
+        "  const convId = tweet.conversation_id;",
+        "  if (!convId || !THREAD_CONTEXT[convId]) return [];",
+        "  const allTweets = THREAD_CONTEXT[convId];",
+        "  const authorId = tweet.author_id;",
+        "  return allTweets.filter(t => {",
+        "    if (t.author_id !== authorId) return false;",
+        "    if (t.id === convId) return true;",
+        "    return !t.text.startsWith('@');",
+        "  }).sort((a,b) => a.created_at.localeCompare(b.created_at));",
         "}",
         "function renderTweets(tweets) {",
         "  const container = document.getElementById('tweets');",
-        "  container.innerHTML = tweets.map(t => "
-        "`<article><p>@${escapeHtml(t.author_username)}: "
-        "${escapeHtml(t.text)}</p></article>`).join('');",
+        "  container.innerHTML = tweets.map(t => {",
+        "    const threadTweets = getThreadTweets(t);",
+        "    const isThread = threadTweets.length > 1;",
+        "    const dn = t.author_display_name || t.author_username;",
+        "    const dt = t.created_at ? new Date(t.created_at).toLocaleString() : '';",
+        "    const url = `https://x.com/${t.author_username}/status/${t.id}`;",
+        "    const av = t.author_avatar_url",
+        '      ? `<img src="${t.author_avatar_url}" alt="" width="48" height="48">`',
+        "      : '';",
+        "    if (isThread) {",
+        "      const threadHtml = threadTweets.map(th => {",
+        "        const txt = expandUrls(th.text, th.urls_json);",
+        "        const star = th.id === t.id ? '\\u2B50 ' : '';",
+        "        return `<p>${star}${escapeHtml(txt)}</p>`;",
+        "      }).join('');",
+        "      return `<article class='thread'>",
+        "        ${av}",
+        "        <p><strong>\\U0001F9F5 Thread by ${escapeHtml(dn)}</strong> "
+        "@${escapeHtml(t.author_username)}</p>",
+        "        ${threadHtml}",
+        '        <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',
+        "      </article>`;",
+        "    }",
+        "    const txt = expandUrls(t.text, t.urls_json);",
+        "    return `<article>",
+        "      ${av}",
+        "      <p><strong>${escapeHtml(dn)}</strong> @${escapeHtml(t.author_username)}</p>",
+        "      <p>${escapeHtml(txt)}</p>",
+        '      <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',
+        "    </article>`;",
+        "  }).join('');",
         "}",
         "document.addEventListener('DOMContentLoaded', () => {",
         "  const search = document.getElementById('search');",

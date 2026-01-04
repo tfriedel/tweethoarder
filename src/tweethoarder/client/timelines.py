@@ -9,7 +9,11 @@ from urllib.parse import urlencode
 
 import httpx
 
-from tweethoarder.client.features import build_bookmarks_features, build_likes_features
+from tweethoarder.client.features import (
+    build_bookmarks_features,
+    build_likes_features,
+    build_tweet_detail_features,
+)
 from tweethoarder.query_ids.constants import TWITTER_API_BASE
 
 if TYPE_CHECKING:
@@ -22,8 +26,18 @@ def build_tweet_detail_url(query_id: str, tweet_id: str) -> str:
     """Build URL for fetching tweet detail from Twitter GraphQL API."""
     variables: dict[str, str | int | bool] = {
         "focalTweetId": tweet_id,
+        "withCommunity": True,
+        "withVoice": True,
+        "withBirdwatchNotes": True,
+        "includePromotedContent": True,
     }
-    params = urlencode({"variables": json.dumps(variables)})
+    features = build_tweet_detail_features()
+    params = urlencode(
+        {
+            "variables": json.dumps(variables),
+            "features": json.dumps(features),
+        }
+    )
     return f"{TWITTER_API_BASE}/{query_id}/TweetDetail?{params}"
 
 
@@ -331,6 +345,12 @@ def parse_tweet_detail_response(
                 tweet_result = item_content.get("tweet_results", {}).get("result")
                 if tweet_result:
                     tweets.append(tweet_result)
+            elif entry_id.startswith("conversationthread-"):
+                for item in content.get("items", []):
+                    item_content = item.get("item", {}).get("itemContent", {})
+                    tweet_result = item_content.get("tweet_results", {}).get("result")
+                    if tweet_result:
+                        tweets.append(tweet_result)
 
     return tweets
 
@@ -389,9 +409,12 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     legacy = raw_tweet.get("legacy", {})
     user_result = raw_tweet.get("core", {}).get("user_results", {}).get("result", {})
     user_core = user_result.get("core", {})
+    user_legacy = user_result.get("legacy", {})
 
     tweet_id = raw_tweet.get("rest_id")
-    text = legacy.get("full_text")
+    # Use note_tweet for long tweets, fallback to legacy.full_text
+    note_tweet = raw_tweet.get("note_tweet", {}).get("note_tweet_results", {}).get("result", {})
+    text = note_tweet.get("text") or legacy.get("full_text")
     author_id = user_result.get("rest_id")
     author_username = user_core.get("screen_name")
     created_at = _convert_twitter_date_to_iso8601(legacy.get("created_at"))
@@ -399,14 +422,33 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     if not all([tweet_id, text, author_id, author_username, created_at]):
         return None
 
+    entities = legacy.get("entities", {})
+    extended_entities = legacy.get("extended_entities", {})
+    retweet_result = legacy.get("retweeted_status_result", {}).get("result", {})
+
+    urls = entities.get("urls")
+    media = extended_entities.get("media")
+    hashtags = entities.get("hashtags")
+    mentions = entities.get("user_mentions")
+
     return {
         "id": tweet_id,
         "text": text,
         "author_id": author_id,
         "author_username": author_username,
         "author_display_name": user_core.get("name"),
+        "author_avatar_url": user_legacy.get("profile_image_url_https"),
         "created_at": created_at,
         "conversation_id": legacy.get("conversation_id_str"),
+        "in_reply_to_tweet_id": legacy.get("in_reply_to_status_id_str"),
+        "in_reply_to_user_id": legacy.get("in_reply_to_user_id_str"),
+        "quoted_tweet_id": legacy.get("quoted_status_id_str"),
+        "is_retweet": "retweeted_status_result" in legacy,
+        "retweeted_tweet_id": retweet_result.get("rest_id"),
+        "urls_json": json.dumps(urls) if urls else None,
+        "media_json": json.dumps(media) if media else None,
+        "hashtags_json": json.dumps(hashtags) if hashtags else None,
+        "mentions_json": json.dumps(mentions) if mentions else None,
         "reply_count": legacy.get("reply_count", 0),
         "retweet_count": legacy.get("retweet_count", 0),
         "like_count": legacy.get("favorite_count", 0),

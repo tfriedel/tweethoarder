@@ -384,6 +384,75 @@ def _make_tweets_response(entries: list) -> dict:
     }
 
 
+def test_sync_tweets_async_accepts_store_raw_parameter() -> None:
+    """sync_tweets_async should accept store_raw parameter."""
+    from tweethoarder.cli.sync import sync_tweets_async
+
+    sig = inspect.signature(sync_tweets_async)
+    params = list(sig.parameters.keys())
+
+    assert "store_raw" in params
+
+
+def test_tweets_command_passes_store_raw_to_async() -> None:
+    """The tweets CLI command should pass store_raw to sync_tweets_async."""
+    from unittest.mock import patch
+
+    from typer.testing import CliRunner
+
+    from tweethoarder.cli.main import app
+
+    runner = CliRunner()
+
+    with patch("tweethoarder.cli.sync.sync_tweets_async") as mock_sync:
+        mock_sync.return_value = {"synced_count": 5}
+        runner.invoke(app, ["sync", "tweets", "--store-raw"])
+
+        call_kwargs = mock_sync.call_args[1]
+        assert call_kwargs.get("store_raw") is True
+
+
+@pytest.mark.asyncio
+async def test_sync_tweets_async_stores_raw_json_when_store_raw_enabled(tmp_path: Path) -> None:
+    """sync_tweets_async should store raw_json in database when store_raw=True."""
+    import sqlite3
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_tweets_async
+
+    db_path = tmp_path / "test.db"
+    mock_response = _make_tweets_response([_make_tweet_entry("123", "Hello")])
+
+    with (
+        patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies,
+        patch("tweethoarder.cli.sync.TwitterClient") as mock_client_class,
+        patch("tweethoarder.cli.sync.get_config_dir") as mock_config_dir,
+        patch("tweethoarder.cli.sync.get_query_id_with_fallback") as mock_get_query_id,
+        patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_async_client,
+    ):
+        mock_cookies.return_value = {"twid": "u%3D789"}
+        mock_client_class.return_value.get_base_headers.return_value = {}
+        mock_config_dir.return_value = tmp_path
+        mock_get_query_id.return_value = "ABC123"
+
+        mock_http = AsyncMock()
+        mock_http_response = MagicMock()
+        mock_http_response.json.return_value = mock_response
+        mock_http_response.raise_for_status = MagicMock()
+        mock_http.get.return_value = mock_http_response
+        mock_async_client.return_value.__aenter__.return_value = mock_http
+
+        await sync_tweets_async(db_path, count=10, store_raw=True)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("SELECT raw_json FROM tweets WHERE id = ?", ("123",))
+    row = cursor.fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] is not None
+
+
 @pytest.mark.asyncio
 async def test_sync_tweets_async_fetches_threads_for_all_synced_tweets(tmp_path: Path) -> None:
     """sync_tweets_async should fetch threads for ALL synced tweets, not just the last one."""

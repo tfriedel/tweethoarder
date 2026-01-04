@@ -75,3 +75,10 @@ def test_build_likes_features_includes_required_twitter_flags() -> None:
 
     # Should have many more flags than before (was only 4, now ~30+)
     assert len(features) >= 20, f"Expected at least 20 features, got {len(features)}"
+
+
+def test_build_tweet_detail_features_exists() -> None:
+    """build_tweet_detail_features function should be importable."""
+    from tweethoarder.client.features import build_tweet_detail_features
+
+    assert callable(build_tweet_detail_features)
