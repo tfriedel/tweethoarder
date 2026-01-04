@@ -34,6 +34,36 @@ def test_sync_bookmarks_async_accepts_with_threads_parameter() -> None:
     assert "with_threads" in params
 
 
+@pytest.mark.asyncio
+async def test_sync_bookmarks_async_uses_fallback_when_cache_empty(tmp_path: Path) -> None:
+    """sync_bookmarks_async should use fallback query ID when cache is empty."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_bookmarks_async
+    from tweethoarder.query_ids.constants import FALLBACK_QUERY_IDS
+
+    db_path = tmp_path / "test.db"
+    mock_response = _make_bookmarks_response([_make_bookmark_entry("123", "Hello")])
+
+    mock_http_response = MagicMock()
+    mock_http_response.json.return_value = mock_response
+    mock_http_response.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t"}
+        with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_http_response
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            # Use empty cache directory - forces fallback
+            await sync_bookmarks_async(db_path=db_path, count=10)
+
+            # Verify the API was called with the fallback query ID
+            call_url = mock_client.get.call_args[0][0]
+            assert FALLBACK_QUERY_IDS["Bookmarks"] in call_url
+
+
 def test_sync_bookmarks_async_accepts_thread_mode_parameter() -> None:
     """sync_bookmarks_async should accept thread_mode parameter."""
     from tweethoarder.cli.sync import sync_bookmarks_async

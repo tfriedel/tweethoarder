@@ -169,3 +169,44 @@ def test_save_persists_query_ids_to_disk(tmp_path: Path) -> None:
     assert cache_path.exists()
     assert store.get_query_id("Bookmarks") == "new_id_123"
     assert store.get_query_id("Likes") == "new_id_456"
+
+
+def test_get_query_id_with_fallback_returns_user_tweets_fallback(tmp_path: Path) -> None:
+    """get_query_id_with_fallback should return UserTweets fallback when not cached."""
+    from tweethoarder.query_ids.constants import FALLBACK_QUERY_IDS
+    from tweethoarder.query_ids.store import QueryIdStore, get_query_id_with_fallback
+
+    cache_path = tmp_path / "nonexistent" / "cache.json"
+    store = QueryIdStore(cache_path=cache_path)
+
+    result = get_query_id_with_fallback(store, "UserTweets")
+
+    assert result == FALLBACK_QUERY_IDS["UserTweets"]
+
+
+def test_get_query_id_with_fallback_returns_user_tweets_and_replies_fallback(
+    tmp_path: Path,
+) -> None:
+    """get_query_id_with_fallback should return UserTweetsAndReplies fallback when not cached."""
+    from tweethoarder.query_ids.constants import FALLBACK_QUERY_IDS
+    from tweethoarder.query_ids.store import QueryIdStore, get_query_id_with_fallback
+
+    cache_path = tmp_path / "nonexistent" / "cache.json"
+    store = QueryIdStore(cache_path=cache_path)
+
+    result = get_query_id_with_fallback(store, "UserTweetsAndReplies")
+
+    assert result == FALLBACK_QUERY_IDS["UserTweetsAndReplies"]
+
+
+def test_get_query_id_with_fallback_raises_for_unknown_operation(tmp_path: Path) -> None:
+    """get_query_id_with_fallback should raise KeyError for unknown operation."""
+    import pytest
+
+    from tweethoarder.query_ids.store import QueryIdStore, get_query_id_with_fallback
+
+    cache_path = tmp_path / "nonexistent" / "cache.json"
+    store = QueryIdStore(cache_path=cache_path)
+
+    with pytest.raises(KeyError, match="Unknown operation"):
+        get_query_id_with_fallback(store, "NonexistentOperation")

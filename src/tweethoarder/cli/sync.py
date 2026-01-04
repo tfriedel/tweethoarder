@@ -160,7 +160,7 @@ async def sync_bookmarks_async(
         fetch_bookmarks_page,
         parse_bookmarks_response,
     )
-    from tweethoarder.query_ids.store import QueryIdStore
+    from tweethoarder.query_ids.store import QueryIdStore, get_query_id_with_fallback
     from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
 
     init_database(db_path)
@@ -171,7 +171,7 @@ async def sync_bookmarks_async(
     client = TwitterClient(cookies)
     cache_path = get_config_dir() / "query-ids-cache.json"
     store = QueryIdStore(cache_path)
-    query_id = store.get("Bookmarks")
+    query_id = get_query_id_with_fallback(store, "Bookmarks")
     headers = client.get_base_headers()
     synced_count = 0
 
