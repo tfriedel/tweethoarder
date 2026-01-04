@@ -18,6 +18,28 @@ if TYPE_CHECKING:
 TWITTER_DATE_FORMAT = "%a %b %d %H:%M:%S %z %Y"
 
 
+def build_tweet_detail_url(query_id: str, tweet_id: str) -> str:
+    """Build URL for fetching tweet detail from Twitter GraphQL API."""
+    variables: dict[str, str | int | bool] = {
+        "focalTweetId": tweet_id,
+    }
+    params = urlencode({"variables": json.dumps(variables)})
+    return f"{TWITTER_API_BASE}/{query_id}/TweetDetail?{params}"
+
+
+async def fetch_tweet_detail_page(
+    client: httpx.AsyncClient,
+    query_id: str,
+    tweet_id: str,
+) -> dict[str, Any]:
+    """Fetch tweet detail page from the Twitter API."""
+    url = build_tweet_detail_url(query_id, tweet_id)
+    response = await client.get(url)
+    response.raise_for_status()
+    result: dict[str, Any] = response.json()
+    return result
+
+
 def build_bookmarks_url(query_id: str, cursor: str | None = None) -> str:
     """Build URL for fetching bookmarks from Twitter GraphQL API."""
     variables: dict[str, str | int | bool] = {
@@ -282,6 +304,64 @@ def _convert_twitter_date_to_iso8601(twitter_date: str | None) -> str | None:
         return None
     parsed = datetime.strptime(twitter_date, TWITTER_DATE_FORMAT)
     return parsed.isoformat()
+
+
+def parse_tweet_detail_response(
+    response: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Parse tweet detail API response and extract conversation tweets."""
+    tweets: list[dict[str, Any]] = []
+
+    conversation = response.get("data", {}).get("threaded_conversation_with_injections_v2", {})
+
+    for instruction in conversation.get("instructions", []):
+        if instruction.get("type") != "TimelineAddEntries":
+            continue
+        for entry in instruction.get("entries", []):
+            entry_id = entry.get("entryId", "")
+            content = entry.get("content", {})
+
+            if entry_id.startswith("tweet-"):
+                item_content = content.get("itemContent", {})
+                tweet_result = item_content.get("tweet_results", {}).get("result")
+                if tweet_result:
+                    tweets.append(tweet_result)
+
+    return tweets
+
+
+def get_focal_tweet_author_id(response: dict[str, Any], focal_tweet_id: str) -> str | None:
+    """Get the author ID of the focal tweet from a TweetDetail response."""
+    conversation = response.get("data", {}).get("threaded_conversation_with_injections_v2", {})
+
+    for instruction in conversation.get("instructions", []):
+        if instruction.get("type") != "TimelineAddEntries":
+            continue
+        for entry in instruction.get("entries", []):
+            content = entry.get("content", {})
+            item_content = content.get("itemContent", {})
+            tweet_result = item_content.get("tweet_results", {}).get("result")
+            if tweet_result and tweet_result.get("rest_id") == focal_tweet_id:
+                user_result = tweet_result.get("core", {}).get("user_results", {}).get("result")
+                if user_result:
+                    rest_id: str | None = user_result.get("rest_id")
+                    return rest_id
+    return None
+
+
+def filter_tweets_by_mode(
+    tweets: list[dict[str, Any]],
+    mode: str,
+    author_id: str | None,
+) -> list[dict[str, Any]]:
+    """Filter tweets by mode (thread keeps only author's tweets, conversation keeps all)."""
+    if mode != "thread":
+        return tweets
+    return [
+        t
+        for t in tweets
+        if t.get("core", {}).get("user_results", {}).get("result", {}).get("rest_id") == author_id
+    ]
 
 
 def is_repost(raw_tweet: dict[str, Any]) -> bool:

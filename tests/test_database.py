@@ -343,3 +343,10 @@ def test_init_database_creates_threads_indexes(tmp_path: Path) -> None:
 
     assert "idx_threads_conversation" in indexes
     assert "idx_threads_focal" in indexes
+
+
+def test_get_db_path_exists() -> None:
+    """get_db_path function should be importable."""
+    from tweethoarder.storage.database import get_db_path
+
+    assert callable(get_db_path)
