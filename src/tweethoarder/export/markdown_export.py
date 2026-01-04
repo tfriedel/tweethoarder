@@ -57,11 +57,21 @@ def export_tweets_to_markdown(
         else:
             date_str = ""
 
-        # Check if tweet has thread context
+        # Check if tweet has thread context (thread = same author's tweets only)
         conversation_id = tweet.get("conversation_id")
+        author_id = tweet.get("author_id")
         thread_tweets: list[dict[str, Any]] = []
-        if thread_context and conversation_id:
-            thread_tweets = thread_context.get(conversation_id, [])
+        if thread_context and conversation_id and author_id:
+            all_conv_tweets = thread_context.get(conversation_id, [])
+            # Filter to same author's tweets that are NOT replies to other users
+            # (replies to others start with @username and are not part of the thread)
+            for t in all_conv_tweets:
+                if t.get("author_id") != author_id:
+                    continue
+                text = t.get("text", "")
+                # Include if: root tweet OR doesn't start with @ (not a reply to someone)
+                if t.get("id") == conversation_id or not text.startswith("@"):
+                    thread_tweets.append(t)
 
         if len(thread_tweets) > 1:
             lines.append(f"## 🧵 Thread by @{username} - {date_str}")

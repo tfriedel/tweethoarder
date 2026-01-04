@@ -146,3 +146,103 @@ def test_export_groups_thread_tweets_when_context_provided(make_tweet: Any) -> N
     assert "3/ Final tweet" in result
     # Should mark the liked tweet
     assert "⭐" in result
+
+
+def test_export_does_not_show_conversation_with_multiple_authors_as_thread(
+    make_tweet: Any,
+) -> None:
+    """Conversation with multiple authors should not be shown as a thread."""
+    # The liked tweet
+    liked_tweet = make_tweet(
+        tweet_id="1",
+        author_id="user1",
+        author_username="adocomplete",
+        text="Advent of Claude Day 31",
+        created_at="2025-12-31T16:18:00Z",
+        conversation_id="1",
+    )
+
+    # Conversation includes replies from other users (not a thread!)
+    conversation_tweets = [
+        make_tweet(
+            tweet_id="1",
+            author_id="user1",
+            author_username="adocomplete",
+            text="Advent of Claude Day 31",
+            created_at="2025-12-31T16:18:00Z",
+            conversation_id="1",
+        ),
+        make_tweet(
+            tweet_id="2",
+            author_id="user2",
+            author_username="soholev",
+            text="What about the primitives?",
+            created_at="2025-12-31T16:20:00Z",
+            conversation_id="1",
+        ),
+        make_tweet(
+            tweet_id="3",
+            author_id="user1",
+            author_username="adocomplete",
+            text="@soholev All the primitives are there",  # Reply to soholev
+            created_at="2025-12-31T16:22:00Z",
+            conversation_id="1",
+        ),
+    ]
+
+    thread_context = {"1": conversation_tweets}
+
+    result = export_tweets_to_markdown(
+        tweets=[liked_tweet], collection="likes", thread_context=thread_context
+    )
+
+    # Should NOT show as a thread since there's only one non-reply tweet
+    assert "🧵" not in result
+    assert "Thread by" not in result
+    # Should only show the single liked tweet
+    assert "Advent of Claude Day 31" in result
+    # Should NOT show other people's replies or replies to others
+    assert "What about the primitives?" not in result
+
+
+def test_export_does_not_show_replies_to_others_as_thread(make_tweet: Any) -> None:
+    """Replies to other users are not a thread even if all from same author."""
+    # The liked tweet
+    liked_tweet = make_tweet(
+        tweet_id="1",
+        author_id="user1",
+        author_username="adocomplete",
+        text="Advent of Claude Day 31",
+        created_at="2025-12-31T16:18:00Z",
+        conversation_id="1",
+    )
+
+    # All tweets from same author, but some are replies to OTHER users
+    conversation_tweets = [
+        make_tweet(
+            tweet_id="1",
+            author_id="user1",
+            author_username="adocomplete",
+            text="Advent of Claude Day 31",
+            created_at="2025-12-31T16:18:00Z",
+            conversation_id="1",
+        ),
+        make_tweet(
+            tweet_id="2",
+            author_id="user1",
+            author_username="adocomplete",
+            text="@soholev All the primitives are there",  # Reply to someone else
+            created_at="2025-12-31T16:20:00Z",
+            conversation_id="1",
+        ),
+    ]
+
+    thread_context = {"1": conversation_tweets}
+
+    result = export_tweets_to_markdown(
+        tweets=[liked_tweet], collection="likes", thread_context=thread_context
+    )
+
+    # Should NOT show as thread - replies to others are not a thread
+    assert "🧵" not in result
+    assert "Thread by" not in result
