@@ -36,11 +36,11 @@ def test_export_formats_tweet_with_author(make_tweet: Any) -> None:
     assert "## @example_user" in result
 
 
-def test_export_includes_tweet_date(make_tweet: Any) -> None:
-    """Export includes formatted date from tweet."""
+def test_export_includes_tweet_date_in_iso_format(make_tweet: Any) -> None:
+    """Export includes formatted date in YYYY-MM-DD HH:MM format."""
     tweet = make_tweet(created_at="2025-01-15T12:00:00Z")
     result = export_tweets_to_markdown(tweets=[tweet], collection="likes")
-    assert "Jan 15, 2025" in result
+    assert "2025-01-15 12:00" in result
 
 
 def test_export_includes_tweet_text(make_tweet: Any) -> None:
@@ -55,3 +55,18 @@ def test_export_includes_twitter_link(make_tweet: Any) -> None:
     tweet = make_tweet(tweet_id="1234567890", author_username="example_user")
     result = export_tweets_to_markdown(tweets=[tweet], collection="likes")
     assert "[View on Twitter](https://twitter.com/example_user/status/1234567890)" in result
+
+
+def test_export_preserves_input_order(make_tweet: Any) -> None:
+    """Export preserves input order (database already sorts by added_at)."""
+    first_tweet = make_tweet(
+        tweet_id="1", author_username="first", created_at="2025-01-01T10:00:00Z"
+    )
+    second_tweet = make_tweet(
+        tweet_id="2", author_username="second", created_at="2025-01-15T10:00:00Z"
+    )
+    # Input order should be preserved regardless of created_at
+    result = export_tweets_to_markdown(tweets=[first_tweet, second_tweet], collection="likes")
+    first_pos = result.find("@first")
+    second_pos = result.find("@second")
+    assert first_pos < second_pos, "Input order should be preserved"

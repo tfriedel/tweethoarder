@@ -92,19 +92,21 @@ async def sync_likes_async(
                 cursor,
                 on_query_id_refresh=refresh_and_get_likes_id,
             )
-            tweets, cursor = parse_likes_response(response)
+            entries, cursor = parse_likes_response(response)
 
-            if not tweets:
+            if not entries:
                 break
 
-            for raw_tweet in tweets:
+            for entry in entries:
                 if synced_count >= count:
                     break
+                raw_tweet = entry["tweet"]
+                sort_index = entry.get("sort_index")
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data is None:
                     continue
                 save_tweet(db_path, tweet_data)
-                add_to_collection(db_path, tweet_data["id"], "like")
+                add_to_collection(db_path, tweet_data["id"], "like", sort_index=sort_index)
                 last_tweet_id = tweet_data["id"]
                 synced_tweet_ids.append(tweet_data["id"])
                 synced_count += 1

@@ -32,10 +32,10 @@ def export_tweets_to_markdown(
         lines.append("")
         username = tweet.get("author_username", "unknown")
         created_at = tweet.get("created_at", "")
-        # Parse ISO date to readable format
+        # Parse ISO date to YYYY-MM-DD HH:MM format
         if created_at:
             dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-            date_str = dt.strftime("%b %d, %Y")
+            date_str = dt.strftime("%Y-%m-%d %H:%M")
         else:
             date_str = ""
         lines.append(f"## @{username} - {date_str}")

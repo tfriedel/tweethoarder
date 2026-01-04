@@ -106,13 +106,13 @@ async def test_sync_likes_async_returns_synced_count(tmp_path: Path) -> None:
     assert result["synced_count"] == 0
 
 
-def _make_tweet_entry(tweet_id: str, text: str = "Hello") -> dict:
+def _make_tweet_entry(tweet_id: str, text: str = "Hello", sort_index: str | None = None) -> dict:
     """Create a mock tweet entry for testing.
 
     Uses the current Twitter API response structure where user info is in
     result.core instead of result.legacy.
     """
-    return {
+    entry: dict = {
         "entryId": f"tweet-{tweet_id}",
         "content": {
             "entryType": "TimelineTimelineItem",
@@ -138,6 +138,9 @@ def _make_tweet_entry(tweet_id: str, text: str = "Hello") -> dict:
             },
         },
     }
+    if sort_index:
+        entry["sortIndex"] = sort_index
+    return entry
 
 
 def _make_likes_response(entries: list) -> dict:
@@ -503,3 +506,39 @@ async def test_sync_likes_async_fetches_threads_for_all_synced_tweets(tmp_path: 
                 # Verify each tweet ID was passed
                 call_tweet_ids = [call[1]["tweet_id"] for call in mock_fetch_thread.call_args_list]
                 assert set(call_tweet_ids) == {"111", "222", "333"}
+
+
+@pytest.mark.asyncio
+async def test_sync_likes_async_stores_sort_index(tmp_path: Path) -> None:
+    """sync_likes_async should store sort_index from Twitter API response."""
+    import sqlite3
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_likes_async
+
+    db_path = tmp_path / "test.db"
+    mock_response = _make_likes_response(
+        [_make_tweet_entry("123", "Hello", sort_index="2007662285526401024")]
+    )
+
+    mock_http_response = MagicMock()
+    mock_http_response.json.return_value = mock_response
+    mock_http_response.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t", "twid": "u%3D12345"}
+        with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_http_response
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            await sync_likes_async(db_path=db_path, count=10)
+
+    # Verify sort_index was stored in the collections table
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("SELECT sort_index FROM collections WHERE tweet_id = ?", ("123",))
+    row = cursor.fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] == "2007662285526401024"

@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS collections (
     bookmark_folder_id TEXT,
     bookmark_folder_name TEXT,
     thread_id TEXT,
+    sort_index TEXT,
     added_at TEXT NOT NULL,
     synced_at TEXT NOT NULL,
     PRIMARY KEY (tweet_id, collection_type),
@@ -188,7 +189,12 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
         conn.commit()
 
 
-def add_to_collection(db_path: Path, tweet_id: str, collection_type: str) -> None:
+def add_to_collection(
+    db_path: Path,
+    tweet_id: str,
+    collection_type: str,
+    sort_index: str | None = None,
+) -> None:
     """Add a tweet to a collection.
 
     Records that a tweet belongs to a specific collection (like, bookmark, etc.).
@@ -198,6 +204,7 @@ def add_to_collection(db_path: Path, tweet_id: str, collection_type: str) -> Non
         db_path: Path to the SQLite database file.
         tweet_id: The ID of the tweet to add.
         collection_type: The type of collection (e.g., "like", "bookmark").
+        sort_index: Twitter's sortIndex for preserving timeline order.
     """
     from datetime import UTC, datetime
 
@@ -207,10 +214,10 @@ def add_to_collection(db_path: Path, tweet_id: str, collection_type: str) -> Non
         conn.execute(
             """
             INSERT OR IGNORE INTO collections (
-                tweet_id, collection_type, added_at, synced_at
-            ) VALUES (?, ?, ?, ?)
+                tweet_id, collection_type, sort_index, added_at, synced_at
+            ) VALUES (?, ?, ?, ?, ?)
             """,
-            (tweet_id, collection_type, now, now),
+            (tweet_id, collection_type, sort_index, now, now),
         )
         conn.commit()
 
@@ -223,7 +230,8 @@ def get_tweets_by_collection(db_path: Path, collection_type: str) -> list[dict[s
         collection_type: The type of collection (e.g., "like", "bookmark").
 
     Returns:
-        List of tweet dictionaries ordered by when they were added (most recent first).
+        List of tweet dictionaries ordered by sort_index (Twitter's timeline order),
+        falling back to added_at for entries without sort_index.
     """
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
@@ -232,7 +240,7 @@ def get_tweets_by_collection(db_path: Path, collection_type: str) -> list[dict[s
             SELECT t.* FROM tweets t
             JOIN collections c ON t.id = c.tweet_id
             WHERE c.collection_type = ?
-            ORDER BY c.added_at DESC
+            ORDER BY c.sort_index IS NULL ASC, c.sort_index DESC, c.added_at DESC
             """,
             (collection_type,),
         )

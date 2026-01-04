@@ -252,17 +252,17 @@ def parse_user_tweets_response(
 def parse_likes_response(
     response: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], str | None]:
-    """Parse likes API response and extract tweets and next cursor.
+    """Parse likes API response and extract tweets with sort index and next cursor.
 
     Args:
         response: The raw JSON response from the Twitter API.
 
     Returns:
-        A tuple of (tweets, cursor) where tweets is a list of raw tweet
-        dictionaries and cursor is the pagination cursor for the next page,
-        or None if there are no more pages.
+        A tuple of (entries, cursor) where entries is a list of dicts containing
+        {"tweet": raw_tweet, "sort_index": sort_index} and cursor is the pagination
+        cursor for the next page, or None if there are no more pages.
     """
-    tweets: list[dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
     cursor: str | None = None
 
     timeline = (
@@ -284,11 +284,16 @@ def parse_likes_response(
                 item_content = content.get("itemContent", {})
                 tweet_result = item_content.get("tweet_results", {}).get("result")
                 if tweet_result:
-                    tweets.append(tweet_result)
+                    entries.append(
+                        {
+                            "tweet": tweet_result,
+                            "sort_index": entry.get("sortIndex"),
+                        }
+                    )
             elif entry_id.startswith("cursor-bottom-"):
                 cursor = content.get("value")
 
-    return tweets, cursor
+    return entries, cursor
 
 
 def _convert_twitter_date_to_iso8601(twitter_date: str | None) -> str | None:
