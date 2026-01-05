@@ -13,6 +13,11 @@ COLLECTION_TITLES = {
 }
 
 
+def _linkify_mentions(text: str) -> str:
+    """Convert @mentions to markdown links."""
+    return re.sub(r"@(\w+)", r"[@\1](https://x.com/\1)", text)
+
+
 def _expand_urls(text: str, urls_json: str | None) -> str:
     """Expand t.co URLs to their full URLs and strip media t.co URLs."""
     if urls_json:
@@ -81,7 +86,7 @@ def export_tweets_to_markdown(
             liked_tweet_id = tweet.get("id", "")
             sorted_tweets = sorted(thread_tweets, key=lambda t: t.get("created_at", ""))
             for t in sorted_tweets:
-                text = _expand_urls(t.get("text", ""), t.get("urls_json"))
+                text = _linkify_mentions(_expand_urls(t.get("text", ""), t.get("urls_json")))
                 if t.get("id") == liked_tweet_id:
                     lines.append(f"⭐ {text}")
                 else:
@@ -90,7 +95,7 @@ def export_tweets_to_markdown(
         else:
             lines.append(f"## @{username} - {date_str}")
             lines.append("")
-            text = _expand_urls(tweet.get("text", ""), tweet.get("urls_json"))
+            text = _linkify_mentions(_expand_urls(tweet.get("text", ""), tweet.get("urls_json")))
             lines.append(text)
             lines.append("")
         tweet_id = tweet.get("id", "")

@@ -118,6 +118,24 @@ def test_export_strips_media_tco_urls() -> None:
     assert "https://t.co/media123" not in result
 
 
+def test_export_makes_mentions_clickable() -> None:
+    """Export should make @mentions clickable with markdown links."""
+    from tweethoarder.export.markdown_export import export_tweets_to_markdown
+
+    tweet = {
+        "id": "123",
+        "text": "@charliermarsh Donald Knuth, @jeremyphoward would approve",
+        "author_username": "user",
+        "author_id": "456",
+        "created_at": "2025-01-01T12:00:00Z",
+    }
+
+    result = export_tweets_to_markdown([tweet], collection="likes")
+
+    assert "[@charliermarsh](https://x.com/charliermarsh)" in result
+    assert "[@jeremyphoward](https://x.com/jeremyphoward)" in result
+
+
 def test_export_groups_thread_tweets_when_context_provided(make_tweet: Any) -> None:
     """Export groups tweets with thread context, marking the liked tweet."""
     # The liked tweet (part of a thread)

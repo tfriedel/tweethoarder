@@ -340,6 +340,10 @@ def html(
         "  return text.replace(/(https?:\\/\\/[^\\s<]+)/g, "
         '\'<a href="$1" target="_blank">$1</a>\');',
         "}",
+        "function linkifyMentions(text) {",
+        "  return text.replace(/@(\\w+)/g, "
+        '\'<a href="https://x.com/$1" target="_blank">@$1</a>\');',
+        "}",
         "function isValidMediaUrl(url) {",
         "  return url && (url.startsWith('https://pbs.twimg.com/') "
         "|| url.startsWith('https://video.twimg.com/'));",
@@ -406,7 +410,7 @@ def html(
         "      const threadHtml = threadTweets.map(th => {",
         "        const txt = expandUrls(th.text, th.urls_json);",
         "        const star = th.id === t.id ? '\\u2B50 ' : '';",
-        "        return `<p>${star}${linkifyUrls(escapeHtml(txt))}</p>`;",
+        "        return `<p>${star}${linkifyMentions(linkifyUrls(escapeHtml(txt)))}</p>`;",
         "      }).join('');",
         "      return `<article class='thread'>",
         "        ${av}",
@@ -424,13 +428,13 @@ def html(
         "    const qtHtml = (qt && qt.author_username && qt.text) ? `<div class='quoted-tweet'>"
         "<p><strong>${escapeHtml(qt.author_display_name || qt.author_username)}</strong> "
         "@${escapeHtml(qt.author_username)}</p>"
-        "<p>${linkifyUrls(escapeHtml(qtText))}</p></div>` : "
+        "<p>${linkifyMentions(linkifyUrls(escapeHtml(qtText)))}</p></div>` :"
         "(t.quoted_tweet_id ? '<div class=\"quoted-tweet\">Quoted tweet unavailable</div>' : '');",
         "    return `<article>",
         "      ${rtHeader}",
         "      ${av}",
         "      <p><strong>${escapeHtml(dn)}</strong> @${escapeHtml(t.author_username)}</p>",
-        "      <p>${linkifyUrls(escapeHtml(txt))}</p>",
+        "      <p>${linkifyMentions(linkifyUrls(escapeHtml(txt)))}</p>",
         "      ${renderMedia(t.media_json)}",
         "      ${qtHtml}",
         '      <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',
