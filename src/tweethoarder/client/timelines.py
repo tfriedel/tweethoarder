@@ -556,6 +556,13 @@ def is_reply(raw_tweet: dict[str, Any]) -> bool:
     return bool(legacy.get("in_reply_to_status_id_str"))
 
 
+def _decode_html_entities(text: str) -> str:
+    """Decode HTML entities in text (e.g., &gt; -> >, &lt; -> <, &amp; -> &)."""
+    import html
+
+    return html.unescape(text)
+
+
 def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     """Extract and convert raw tweet data to database format.
 
@@ -575,23 +582,83 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     user_avatar = user_result.get("avatar", {})
 
     tweet_id = raw_tweet.get("rest_id")
-    # Use note_tweet for long tweets, fallback to legacy.full_text
-    note_tweet = raw_tweet.get("note_tweet", {}).get("note_tweet_results", {}).get("result", {})
-    text = note_tweet.get("text") or legacy.get("full_text")
-    author_id = user_result.get("rest_id")
-    # Try legacy.screen_name first (newer API), then core.screen_name (older API)
-    author_username = user_legacy.get("screen_name") or user_core.get("screen_name")
     created_at = _convert_twitter_date_to_iso8601(legacy.get("created_at"))
+
+    # Check if this is a retweet
+    retweet_result = legacy.get("retweeted_status_result", {}).get("result", {})
+    is_retweet = bool(retweet_result)
+
+    # For retweets, use the original tweet's author and content
+    if is_retweet:
+        rt_legacy = retweet_result.get("legacy", {})
+        rt_note = (
+            retweet_result.get("note_tweet", {}).get("note_tweet_results", {}).get("result", {})
+        )
+        # Prefer original tweet's text, fall back to RT text if not available
+        text = rt_note.get("text") or rt_legacy.get("full_text") or legacy.get("full_text")
+        # Use original tweet's entities if available
+        entities = rt_legacy.get("entities", {}) or legacy.get("entities", {})
+        extended_entities = rt_legacy.get("extended_entities", {}) or legacy.get(
+            "extended_entities", {}
+        )
+        # Use ORIGINAL author for retweets
+        rt_user_result = retweet_result.get("core", {}).get("user_results", {}).get("result", {})
+        rt_user_core = rt_user_result.get("core", {})
+        rt_user_legacy = rt_user_result.get("legacy", {})
+        rt_user_avatar = rt_user_result.get("avatar", {})
+        # Original author info (fall back to retweeter if not available)
+        author_id = rt_user_result.get("rest_id") or user_result.get("rest_id")
+        author_username = (
+            rt_user_legacy.get("screen_name")
+            or rt_user_core.get("screen_name")
+            or user_legacy.get("screen_name")
+            or user_core.get("screen_name")
+        )
+        author_display_name = (
+            rt_user_legacy.get("name")
+            or rt_user_core.get("name")
+            or user_legacy.get("name")
+            or user_core.get("name")
+        )
+        author_avatar_url = (
+            rt_user_avatar.get("image_url")
+            or rt_user_legacy.get("profile_image_url_https")
+            or user_avatar.get("image_url")
+            or user_legacy.get("profile_image_url_https")
+        )
+        # Retweeter info
+        retweeter_username = user_legacy.get("screen_name") or user_core.get("screen_name")
+    else:
+        # Use note_tweet for long tweets, fallback to legacy.full_text
+        note_tweet = raw_tweet.get("note_tweet", {}).get("note_tweet_results", {}).get("result", {})
+        text = note_tweet.get("text") or legacy.get("full_text")
+        entities = legacy.get("entities", {})
+        extended_entities = legacy.get("extended_entities", {})
+        # Author info
+        author_id = user_result.get("rest_id")
+        author_username = user_legacy.get("screen_name") or user_core.get("screen_name")
+        author_display_name = user_legacy.get("name") or user_core.get("name")
+        author_avatar_url = user_avatar.get("image_url") or user_legacy.get(
+            "profile_image_url_https"
+        )
+        retweeter_username = None
+
+    # Decode HTML entities in text (e.g., &gt; -> >)
+    if text:
+        text = _decode_html_entities(text)
 
     if not all([tweet_id, text, author_id, author_username, created_at]):
         return None
 
-    entities = legacy.get("entities", {})
-    extended_entities = legacy.get("extended_entities", {})
-    retweet_result = legacy.get("retweeted_status_result", {}).get("result", {})
     # Quote tweets: try new GraphQL API format first, fallback to legacy
     quoted_result = raw_tweet.get("quoted_status_result", {}).get("result", {})
     quoted_tweet_id = quoted_result.get("rest_id") or legacy.get("quoted_status_id_str")
+    # For retweets, also check if the retweeted status has a quote
+    if is_retweet and not quoted_tweet_id:
+        rt_quoted = retweet_result.get("quoted_status_result", {}).get("result", {})
+        quoted_tweet_id = rt_quoted.get("rest_id") or retweet_result.get("legacy", {}).get(
+            "quoted_status_id_str"
+        )
 
     urls = entities.get("urls")
     media = extended_entities.get("media")
@@ -603,16 +670,16 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
         "text": text,
         "author_id": author_id,
         "author_username": author_username,
-        "author_display_name": user_legacy.get("name") or user_core.get("name"),
-        "author_avatar_url": user_avatar.get("image_url")
-        or user_legacy.get("profile_image_url_https"),
+        "author_display_name": author_display_name,
+        "author_avatar_url": author_avatar_url,
         "created_at": created_at,
         "conversation_id": legacy.get("conversation_id_str"),
         "in_reply_to_tweet_id": legacy.get("in_reply_to_status_id_str"),
         "in_reply_to_user_id": legacy.get("in_reply_to_user_id_str"),
         "quoted_tweet_id": quoted_tweet_id,
-        "is_retweet": "retweeted_status_result" in legacy,
-        "retweeted_tweet_id": retweet_result.get("rest_id"),
+        "is_retweet": is_retweet,
+        "retweeted_tweet_id": retweet_result.get("rest_id") if is_retweet else None,
+        "retweeter_username": retweeter_username,
         "urls_json": json.dumps(_strip_urls(urls)) if urls else None,
         "media_json": json.dumps(_strip_media(media)) if media else None,
         "hashtags_json": json.dumps(_strip_hashtags(hashtags)) if hashtags else None,

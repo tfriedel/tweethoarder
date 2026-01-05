@@ -156,9 +156,10 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
                 id, text, author_id, author_username, author_display_name,
                 author_avatar_url, created_at, conversation_id, quoted_tweet_id,
                 in_reply_to_tweet_id, in_reply_to_user_id,
+                is_retweet, retweeted_tweet_id,
                 reply_count, retweet_count, like_count, quote_count,
                 urls_json, media_json, raw_json, first_seen_at, last_updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 text = excluded.text,
                 author_id = excluded.author_id,
@@ -175,6 +176,10 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
                 ),
                 in_reply_to_user_id = COALESCE(
                     excluded.in_reply_to_user_id, tweets.in_reply_to_user_id
+                ),
+                is_retweet = excluded.is_retweet,
+                retweeted_tweet_id = COALESCE(
+                    excluded.retweeted_tweet_id, tweets.retweeted_tweet_id
                 ),
                 reply_count = excluded.reply_count,
                 retweet_count = excluded.retweet_count,
@@ -197,6 +202,8 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
                 tweet_data.get("quoted_tweet_id"),
                 tweet_data.get("in_reply_to_tweet_id"),
                 tweet_data.get("in_reply_to_user_id"),
+                tweet_data.get("is_retweet", False),
+                tweet_data.get("retweeted_tweet_id"),
                 tweet_data.get("reply_count", 0),
                 tweet_data.get("retweet_count", 0),
                 tweet_data.get("like_count", 0),
