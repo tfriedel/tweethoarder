@@ -18,6 +18,7 @@ async def fetch_thread_async(
 ) -> dict:
     """Fetch thread for a tweet."""
     from tweethoarder.client.timelines import (
+        extract_quoted_tweet,
         extract_tweet_data,
         fetch_tweet_detail_page,
         filter_tweets_by_mode,
@@ -46,6 +47,10 @@ async def fetch_thread_async(
             tweet_data = extract_tweet_data(raw_tweet)
             if tweet_data:
                 save_tweet(db_path, tweet_data)
+                # Also save the quoted tweet if present
+                quoted_tweet_data = extract_quoted_tweet(raw_tweet)
+                if quoted_tweet_data:
+                    save_tweet(db_path, quoted_tweet_data)
                 tweet_count += 1
 
     return {"tweet_count": tweet_count}

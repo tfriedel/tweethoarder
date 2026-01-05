@@ -11,6 +11,7 @@ from tweethoarder.auth.cookies import resolve_cookies
 from tweethoarder.cli.thread import fetch_thread_async
 from tweethoarder.client.base import TwitterClient
 from tweethoarder.client.timelines import (
+    extract_quoted_tweet,
     extract_tweet_data,
     fetch_likes_page,
     parse_likes_response,
@@ -111,6 +112,10 @@ async def sync_likes_async(
                 if store_raw:
                     tweet_data["raw_json"] = json.dumps(raw_tweet)
                 save_tweet(db_path, tweet_data)
+                # Also save the quoted tweet if present
+                quoted_tweet_data = extract_quoted_tweet(raw_tweet)
+                if quoted_tweet_data:
+                    save_tweet(db_path, quoted_tweet_data)
                 add_to_collection(db_path, tweet_data["id"], "like", sort_index=sort_index)
                 last_tweet_id = tweet_data["id"]
                 synced_tweet_ids.append(tweet_data["id"])
@@ -172,6 +177,7 @@ async def sync_bookmarks_async(
 ) -> dict[str, int]:
     """Sync bookmarks asynchronously."""
     from tweethoarder.client.timelines import (
+        extract_quoted_tweet,
         extract_tweet_data,
         fetch_bookmarks_page,
         parse_bookmarks_response,
@@ -226,6 +232,10 @@ async def sync_bookmarks_async(
                     if store_raw:
                         tweet_data["raw_json"] = json.dumps(raw_tweet)
                     save_tweet(db_path, tweet_data)
+                    # Also save the quoted tweet if present
+                    quoted_tweet_data = extract_quoted_tweet(raw_tweet)
+                    if quoted_tweet_data:
+                        save_tweet(db_path, quoted_tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "bookmark")
                     last_tweet_id = tweet_data["id"]
                     synced_tweet_ids.append(tweet_data["id"])
@@ -287,6 +297,7 @@ async def sync_tweets_async(
 ) -> dict[str, int]:
     """Sync user's tweets asynchronously."""
     from tweethoarder.client.timelines import (
+        extract_quoted_tweet,
         fetch_user_tweets_page,
         parse_user_tweets_response,
     )
@@ -332,6 +343,10 @@ async def sync_tweets_async(
                     if store_raw:
                         tweet_data["raw_json"] = json.dumps(raw_tweet)
                     save_tweet(db_path, tweet_data)
+                    # Also save the quoted tweet if present
+                    quoted_tweet_data = extract_quoted_tweet(raw_tweet)
+                    if quoted_tweet_data:
+                        save_tweet(db_path, quoted_tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "tweet")
                     synced_tweet_ids.append(tweet_data["id"])
                     synced_count += 1
@@ -385,6 +400,7 @@ async def sync_reposts_async(
 ) -> dict[str, int]:
     """Sync user's reposts asynchronously."""
     from tweethoarder.client.timelines import (
+        extract_quoted_tweet,
         fetch_user_tweets_page,
         is_repost,
         parse_user_tweets_response,
@@ -433,6 +449,10 @@ async def sync_reposts_async(
                     if store_raw:
                         tweet_data["raw_json"] = json.dumps(raw_tweet)
                     save_tweet(db_path, tweet_data)
+                    # Also save the quoted tweet if present
+                    quoted_tweet_data = extract_quoted_tweet(raw_tweet)
+                    if quoted_tweet_data:
+                        save_tweet(db_path, quoted_tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "repost")
                     synced_tweet_ids.append(tweet_data["id"])
                     synced_count += 1

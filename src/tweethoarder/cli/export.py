@@ -105,6 +105,7 @@ def markdown(
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
         get_tweets_by_conversation_id,
+        get_tweets_by_ids,
     )
 
     data_dir = get_data_dir()
@@ -129,8 +130,21 @@ def markdown(
             except Exception:
                 thread_context[conv_id] = []
 
+    # Collect quoted tweet IDs and fetch them
+    tweet_ids_in_collection = {t["id"] for t in tweets}
+    quoted_tweet_ids = [
+        t["quoted_tweet_id"]
+        for t in tweets
+        if t.get("quoted_tweet_id") and t["quoted_tweet_id"] not in tweet_ids_in_collection
+    ]
+    quoted_tweets_list = get_tweets_by_ids(db_path, quoted_tweet_ids)
+    quoted_tweets = {t["id"]: t for t in quoted_tweets_list}
+    # Also add quoted tweets that are already in our collection
+    for t in tweets:
+        quoted_tweets[t["id"]] = t
+
     content = export_tweets_to_markdown(
-        tweets, collection=collection, thread_context=thread_context
+        tweets, collection=collection, thread_context=thread_context, quoted_tweets=quoted_tweets
     )
 
     output_path = output or _get_default_export_path(data_dir, collection, "md")
@@ -207,6 +221,7 @@ def html(
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
         get_tweets_by_conversation_id,
+        get_tweets_by_ids,
     )
 
     data_dir = get_data_dir()
@@ -231,6 +246,16 @@ def html(
             except Exception:
                 thread_context[conv_id] = []
 
+    # Collect quoted tweet IDs that aren't already in our collection
+    tweet_ids_in_collection = {t["id"] for t in tweets}
+    quoted_tweet_ids = [
+        t["quoted_tweet_id"]
+        for t in tweets
+        if t.get("quoted_tweet_id") and t["quoted_tweet_id"] not in tweet_ids_in_collection
+    ]
+    # Fetch quoted tweets from database
+    quoted_tweets = get_tweets_by_ids(db_path, quoted_tweet_ids)
+
     import json
     from collections import Counter
 
@@ -250,7 +275,10 @@ def html(
         "quoted_tweet_id",
     }
     stripped_tweets = [{k: v for k, v in t.items() if k in used_fields} for t in tweets]
-    tweets_json = json.dumps(stripped_tweets)
+    # Include quoted tweets in the data so they're available in TWEETS_MAP
+    stripped_quoted = [{k: v for k, v in t.items() if k in used_fields} for t in quoted_tweets]
+    all_tweets_for_map = stripped_tweets + stripped_quoted
+    tweets_json = json.dumps(all_tweets_for_map)
 
     # Compute facets
     author_counts: Counter[str] = Counter()
