@@ -577,11 +577,12 @@ async def test_sync_likes_async_stores_raw_json_when_store_raw_enabled(tmp_path:
 
 @pytest.mark.asyncio
 async def test_sync_likes_async_stores_sort_index(tmp_path: Path) -> None:
-    """sync_likes_async should store sort_index from Twitter API response."""
+    """sync_likes_async should store generated sort_index in collections table."""
     import sqlite3
     from unittest.mock import AsyncMock, MagicMock, patch
 
     from tweethoarder.cli.sync import sync_likes_async
+    from tweethoarder.sync.sort_index import INITIAL_SORT_INDEX
 
     db_path = tmp_path / "test.db"
     mock_response = _make_likes_response(
@@ -601,11 +602,12 @@ async def test_sync_likes_async_stores_sort_index(tmp_path: Path) -> None:
 
             await sync_likes_async(db_path=db_path, count=10)
 
-    # Verify sort_index was stored in the collections table
+    # Verify sort_index was stored - now uses our generated value, not Twitter's
     conn = sqlite3.connect(db_path)
     cursor = conn.execute("SELECT sort_index FROM collections WHERE tweet_id = ?", ("123",))
     row = cursor.fetchone()
     conn.close()
 
     assert row is not None
-    assert row[0] == "2007662285526401024"
+    # First tweet gets the initial sort_index value
+    assert row[0] == INITIAL_SORT_INDEX

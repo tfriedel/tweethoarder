@@ -11,6 +11,7 @@ class CheckpointData:
 
     cursor: str
     last_tweet_id: str
+    sort_index_counter: str | None = None
 
 
 class SyncCheckpoint:
@@ -24,16 +25,17 @@ class SyncCheckpoint:
         collection_type: str,
         cursor: str,
         last_tweet_id: str,
+        sort_index_counter: str | None = None,
     ) -> None:
         """Save current sync position."""
         with sqlite3.connect(self._db_path) as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO sync_progress
-                    (collection_type, cursor, last_tweet_id, status)
-                VALUES (?, ?, ?, 'in_progress')
+                    (collection_type, cursor, last_tweet_id, sort_index_counter, status)
+                VALUES (?, ?, ?, ?, 'in_progress')
                 """,
-                (collection_type, cursor, last_tweet_id),
+                (collection_type, cursor, last_tweet_id, sort_index_counter),
             )
             conn.commit()
 
@@ -41,7 +43,8 @@ class SyncCheckpoint:
         """Load checkpoint for resuming interrupted sync."""
         with sqlite3.connect(self._db_path) as conn:
             result = conn.execute(
-                "SELECT cursor, last_tweet_id FROM sync_progress WHERE collection_type = ?",
+                """SELECT cursor, last_tweet_id, sort_index_counter
+                FROM sync_progress WHERE collection_type = ?""",
                 (collection_type,),
             )
             row = result.fetchone()
@@ -49,7 +52,11 @@ class SyncCheckpoint:
         if row is None:
             return None
 
-        return CheckpointData(cursor=row[0], last_tweet_id=row[1])
+        return CheckpointData(
+            cursor=row[0],
+            last_tweet_id=row[1],
+            sort_index_counter=row[2],
+        )
 
     def clear(self, collection_type: str) -> None:
         """Clear checkpoint after successful completion."""

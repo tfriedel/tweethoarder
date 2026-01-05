@@ -790,3 +790,61 @@ def test_get_parent_tweet_returns_none_for_missing_parent(tmp_path: Path) -> Non
     parent = get_parent_tweet(db_path, "reply456")
 
     assert parent is None
+
+
+def test_get_min_sort_index_returns_minimum_value(tmp_path: Path) -> None:
+    """get_min_sort_index should return the minimum sort_index for a collection."""
+    from tweethoarder.storage.database import (
+        add_to_collection,
+        get_min_sort_index,
+        init_database,
+        save_tweet,
+    )
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Create tweets with different sort_index values
+    for i, sort_index in enumerate(["3000", "1000", "2000"], start=1):
+        save_tweet(
+            db_path,
+            {
+                "id": str(i),
+                "text": f"Tweet {i}",
+                "author_id": "100",
+                "author_username": "user",
+                "created_at": f"2025-01-0{i}T12:00:00Z",
+            },
+        )
+        add_to_collection(db_path, str(i), "like", sort_index=sort_index)
+
+    result = get_min_sort_index(db_path, "like")
+
+    assert result == "1000"
+
+
+def test_get_min_sort_index_returns_none_for_empty_collection(tmp_path: Path) -> None:
+    """get_min_sort_index should return None when collection has no entries."""
+    from tweethoarder.storage.database import get_min_sort_index, init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    result = get_min_sort_index(db_path, "like")
+
+    assert result is None
+
+
+def test_sync_progress_has_sort_index_counter_column(tmp_path: Path) -> None:
+    """sync_progress table should have sort_index_counter column for resuming syncs."""
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("PRAGMA table_info(sync_progress)")
+    columns = {row[1] for row in cursor.fetchall()}
+    conn.close()
+
+    assert "sort_index_counter" in columns

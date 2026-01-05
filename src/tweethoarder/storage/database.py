@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS sync_progress (
     total_synced INTEGER DEFAULT 0,
     started_at TEXT,
     completed_at TEXT,
-    status TEXT DEFAULT 'pending'
+    status TEXT DEFAULT 'pending',
+    sort_index_counter TEXT
 )
 """
 
@@ -117,6 +118,14 @@ def get_db_path() -> Path:
     return data_dir / "tweethoarder.db"
 
 
+def _migrate_sync_progress_add_counter(conn: sqlite3.Connection) -> None:
+    """Add sort_index_counter column to sync_progress table if it doesn't exist."""
+    cursor = conn.execute("PRAGMA table_info(sync_progress)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "sort_index_counter" not in columns:
+        conn.execute("ALTER TABLE sync_progress ADD COLUMN sort_index_counter TEXT")
+
+
 def init_database(db_path: Path) -> None:
     """Initialize the SQLite database."""
     with sqlite3.connect(db_path) as conn:
@@ -128,6 +137,8 @@ def init_database(db_path: Path) -> None:
         conn.execute(THREADS_SCHEMA)
         for index_sql in INDEXES:
             conn.execute(index_sql)
+        # Run migrations for existing databases
+        _migrate_sync_progress_add_counter(conn)
         conn.commit()
 
 
@@ -436,3 +447,25 @@ def get_parent_tweet(db_path: Path, reply_tweet_id: str) -> dict[str, Any] | Non
         )
         parent_row = cursor.fetchone()
         return dict(parent_row) if parent_row else None
+
+
+def get_min_sort_index(db_path: Path, collection_type: str) -> str | None:
+    """Get the minimum sort_index value for a collection.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        collection_type: The type of collection (e.g., "like", "bookmark").
+
+    Returns:
+        The minimum sort_index value as a string, or None if no entries exist.
+    """
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            """
+            SELECT MIN(sort_index) FROM collections
+            WHERE collection_type = ? AND sort_index IS NOT NULL
+            """,
+            (collection_type,),
+        )
+        row = cursor.fetchone()
+        return row[0] if row and row[0] else None

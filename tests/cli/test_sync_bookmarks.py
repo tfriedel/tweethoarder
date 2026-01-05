@@ -687,11 +687,12 @@ async def test_sync_bookmarks_async_fetches_threads_for_conversation_tweets(tmp_
 
 @pytest.mark.asyncio
 async def test_sync_bookmarks_async_stores_sort_index(tmp_path: Path) -> None:
-    """sync_bookmarks_async should store sort_index in collections table."""
+    """sync_bookmarks_async should store generated sort_index in collections table."""
     import sqlite3
     from unittest.mock import AsyncMock, MagicMock, patch
 
     from tweethoarder.cli.sync import sync_bookmarks_async
+    from tweethoarder.sync.sort_index import INITIAL_SORT_INDEX
 
     db_path = tmp_path / "test.db"
     mock_response = _make_bookmarks_response(
@@ -720,4 +721,5 @@ async def test_sync_bookmarks_async_stores_sort_index(tmp_path: Path) -> None:
     conn.close()
 
     assert row is not None
-    assert row[0] == "9876543210"
+    # First bookmark gets the initial sort_index value
+    assert row[0] == INITIAL_SORT_INDEX
