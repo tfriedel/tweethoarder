@@ -288,10 +288,10 @@ def html(
         "richtext_tags",
     }
     stripped_tweets = [{k: v for k, v in t.items() if k in used_fields} for t in tweets]
-    # Include quoted tweets in the data so they're available in TWEETS_MAP
+    # Include quoted tweets separately for TWEETS_MAP lookup only
     stripped_quoted = [{k: v for k, v in t.items() if k in used_fields} for t in quoted_tweets]
-    all_tweets_for_map = stripped_tweets + stripped_quoted
-    tweets_json = json.dumps(all_tweets_for_map)
+    tweets_json = json.dumps(stripped_tweets)
+    quoted_tweets_json = json.dumps(stripped_quoted)
 
     # Compute facets
     author_counts: Counter[str] = Counter()
@@ -365,9 +365,10 @@ def html(
         "</style>",
         "<script>",
         f"const TWEETS = {tweets_json};",
+        f"const QUOTED_TWEETS = {quoted_tweets_json};",
         f"const FACETS = {facets_json};",
         f"const THREAD_CONTEXT = {thread_context_json};",
-        "const TWEETS_MAP = Object.fromEntries(TWEETS.map(t => [t.id, t]));",
+        "const TWEETS_MAP = Object.fromEntries([...TWEETS, ...QUOTED_TWEETS].map(t => [t.id, t]));",
         "function escapeHtml(s) {",
         "  const div = document.createElement('div');",
         "  div.textContent = s;",

@@ -106,8 +106,8 @@ def test_parse_user_tweets_response_exists() -> None:
     assert callable(parse_user_tweets_response)
 
 
-def test_parse_user_tweets_response_extracts_tweets() -> None:
-    """parse_user_tweets_response should extract tweets from response."""
+def test_parse_user_tweets_response_extracts_tweets_with_sort_index() -> None:
+    """parse_user_tweets_response should extract tweets with sort_index from response."""
     from tweethoarder.client.timelines import parse_user_tweets_response
 
     response = {
@@ -122,6 +122,7 @@ def test_parse_user_tweets_response_extracts_tweets() -> None:
                                     "entries": [
                                         {
                                             "entryId": "tweet-123",
+                                            "sortIndex": "1234567890",
                                             "content": {
                                                 "itemContent": {
                                                     "tweet_results": {"result": {"rest_id": "123"}}
@@ -138,10 +139,11 @@ def test_parse_user_tweets_response_extracts_tweets() -> None:
         }
     }
 
-    tweets, _cursor = parse_user_tweets_response(response)
+    entries, _cursor = parse_user_tweets_response(response)
 
-    assert len(tweets) == 1
-    assert tweets[0]["rest_id"] == "123"
+    assert len(entries) == 1
+    assert entries[0]["tweet"]["rest_id"] == "123"
+    assert entries[0]["sort_index"] == "1234567890"
 
 
 @pytest.mark.asyncio

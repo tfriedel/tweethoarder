@@ -292,14 +292,16 @@ async def sync_bookmarks_async(
                 cursor,
                 on_query_id_refresh=refresh_and_get_bookmarks_id,
             )
-            tweets, cursor = parse_bookmarks_response(response)
+            entries, cursor = parse_bookmarks_response(response)
 
-            if not tweets:
+            if not entries:
                 break
 
-            for raw_tweet in tweets:
+            for entry in entries:
                 if synced_count >= count:
                     break
+                raw_tweet = entry["tweet"]
+                sort_index = entry.get("sort_index")
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data:
                     if store_raw:
@@ -309,7 +311,7 @@ async def sync_bookmarks_async(
                     quoted_tweet_data = extract_quoted_tweet(raw_tweet)
                     if quoted_tweet_data:
                         save_tweet(db_path, quoted_tweet_data)
-                    add_to_collection(db_path, tweet_data["id"], "bookmark")
+                    add_to_collection(db_path, tweet_data["id"], "bookmark", sort_index=sort_index)
                     last_tweet_id = tweet_data["id"]
                     synced_tweet_ids.append(tweet_data["id"])
                     if needs_thread_fetch(tweet_data):
@@ -420,14 +422,16 @@ async def sync_tweets_async(
                 user_id,
                 cursor,
             )
-            tweets, cursor = parse_user_tweets_response(response)
+            entries, cursor = parse_user_tweets_response(response)
 
-            if not tweets:
+            if not entries:
                 break
 
-            for raw_tweet in tweets:
+            for entry in entries:
                 if synced_count >= count:
                     break
+                raw_tweet = entry["tweet"]
+                sort_index = entry.get("sort_index")
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data:
                     if store_raw:
@@ -437,7 +441,7 @@ async def sync_tweets_async(
                     quoted_tweet_data = extract_quoted_tweet(raw_tweet)
                     if quoted_tweet_data:
                         save_tweet(db_path, quoted_tweet_data)
-                    add_to_collection(db_path, tweet_data["id"], "tweet")
+                    add_to_collection(db_path, tweet_data["id"], "tweet", sort_index=sort_index)
                     synced_tweet_ids.append(tweet_data["id"])
                     synced_count += 1
 
@@ -526,14 +530,16 @@ async def sync_reposts_async(
                 user_id,
                 cursor,
             )
-            tweets, cursor = parse_user_tweets_response(response)
+            entries, cursor = parse_user_tweets_response(response)
 
-            if not tweets:
+            if not entries:
                 break
 
-            for raw_tweet in tweets:
+            for entry in entries:
                 if synced_count >= count:
                     break
+                raw_tweet = entry["tweet"]
+                sort_index = entry.get("sort_index")
                 if not is_repost(raw_tweet):
                     continue
                 tweet_data = extract_tweet_data(raw_tweet)
@@ -545,7 +551,7 @@ async def sync_reposts_async(
                     quoted_tweet_data = extract_quoted_tweet(raw_tweet)
                     if quoted_tweet_data:
                         save_tweet(db_path, quoted_tweet_data)
-                    add_to_collection(db_path, tweet_data["id"], "repost")
+                    add_to_collection(db_path, tweet_data["id"], "repost", sort_index=sort_index)
                     synced_tweet_ids.append(tweet_data["id"])
                     synced_count += 1
 
