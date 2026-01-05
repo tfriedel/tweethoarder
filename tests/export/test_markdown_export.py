@@ -287,3 +287,96 @@ def test_export_does_not_show_replies_to_others_as_thread(make_tweet: Any) -> No
     # Should NOT show as thread - replies to others are not a thread
     assert "🧵" not in result
     assert "Thread by" not in result
+
+
+def test_export_preserves_newlines_in_note_tweet(make_tweet: Any) -> None:
+    """Newlines in Note tweets should be preserved as paragraph breaks."""
+    text = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+    tweet = make_tweet(text=text)
+
+    result = export_tweets_to_markdown(tweets=[tweet], collection="likes")
+
+    # Newlines should be preserved - each paragraph on its own line
+    assert "First paragraph." in result
+    assert "Second paragraph." in result
+    assert "Third paragraph." in result
+    # Check that paragraphs are separated (not all on one line)
+    lines = result.split("\n")
+    # Find lines containing each paragraph
+    first_line = next((i for i, line in enumerate(lines) if "First paragraph." in line), -1)
+    second_line = next((i for i, line in enumerate(lines) if "Second paragraph." in line), -1)
+    third_line = next((i for i, line in enumerate(lines) if "Third paragraph." in line), -1)
+    assert first_line >= 0, "First paragraph not found"
+    assert second_line >= 0, "Second paragraph not found"
+    assert third_line >= 0, "Third paragraph not found"
+    assert second_line > first_line, "Paragraphs should be on separate lines"
+    assert third_line > second_line, "Paragraphs should be on separate lines"
+
+
+def test_export_preserves_single_newlines(make_tweet: Any) -> None:
+    """Single newlines should also be preserved."""
+    text = "Line 1\nLine 2\nLine 3"
+    tweet = make_tweet(text=text)
+
+    result = export_tweets_to_markdown(tweets=[tweet], collection="likes")
+
+    # All lines should be present
+    assert "Line 1" in result
+    assert "Line 2" in result
+    assert "Line 3" in result
+
+
+def test_export_applies_richtext_formatting_from_raw_json() -> None:
+    """Markdown export should apply bold/italic formatting from raw_json richtext_tags."""
+    import json
+
+    raw_json = json.dumps(
+        {
+            "note_tweet": {
+                "note_tweet_results": {
+                    "result": {
+                        "text": "Hello world today",
+                        "richtext": {
+                            "richtext_tags": [
+                                {"from_index": 0, "to_index": 5, "richtext_types": ["Bold"]},
+                                {"from_index": 12, "to_index": 17, "richtext_types": ["Italic"]},
+                            ]
+                        },
+                    }
+                }
+            }
+        }
+    )
+
+    tweet = {
+        "id": "123",
+        "text": "Hello world today",
+        "author_username": "testuser",
+        "author_id": "456",
+        "created_at": "2025-01-01T12:00:00Z",
+        "raw_json": raw_json,
+    }
+
+    result = export_tweets_to_markdown([tweet], collection="likes")
+
+    # Should have bold formatting applied
+    assert "**Hello**" in result
+    # Should have italic formatting applied
+    assert "*today*" in result
+
+
+def test_export_gracefully_handles_no_raw_json() -> None:
+    """Markdown export should work when raw_json is not available."""
+    tweet = {
+        "id": "123",
+        "text": "Hello world",
+        "author_username": "testuser",
+        "author_id": "456",
+        "created_at": "2025-01-01T12:00:00Z",
+        # No raw_json field
+    }
+
+    result = export_tweets_to_markdown([tweet], collection="likes")
+
+    # Should still contain the text (no formatting applied)
+    assert "Hello world" in result

@@ -590,7 +590,7 @@ def test_export_html_has_expand_urls_function(
 def test_export_html_render_uses_expand_urls(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Export html renderTweets should call expandUrls on tweet text."""
+    """Export html renderTweets should call expandUrls on richtext-formatted text."""
     _setup_test_db(tmp_path)
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
 
@@ -598,8 +598,9 @@ def test_export_html_render_uses_expand_urls(
     runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
 
     content = output_path.read_text()
-    # Render should call expandUrls with text and urls_json
-    assert "expandUrls(t.text, t.urls_json)" in content
+    # Render should apply richtext first, then expandUrls
+    assert "applyRichtext(t.text, t.richtext_tags)" in content
+    assert "expandUrls(richTxt, t.urls_json)" in content
 
 
 def test_export_html_renders_author_avatar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

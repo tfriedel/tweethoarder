@@ -259,6 +259,18 @@ def html(
     import json
     from collections import Counter
 
+    from tweethoarder.export.richtext import extract_richtext_tags
+
+    # Extract richtext_tags from raw_json for each tweet
+    for tweet in tweets:
+        richtext_tags = extract_richtext_tags(tweet.get("raw_json"))
+        if richtext_tags:
+            tweet["richtext_tags"] = richtext_tags
+    for tweet in quoted_tweets:
+        richtext_tags = extract_richtext_tags(tweet.get("raw_json"))
+        if richtext_tags:
+            tweet["richtext_tags"] = richtext_tags
+
     # Strip unused fields to reduce HTML size
     used_fields = {
         "id",
@@ -273,6 +285,7 @@ def html(
         "media_json",
         "is_retweet",
         "quoted_tweet_id",
+        "richtext_tags",
     }
     stripped_tweets = [{k: v for k, v in t.items() if k in used_fields} for t in tweets]
     # Include quoted tweets in the data so they're available in TWEETS_MAP
@@ -316,6 +329,12 @@ def html(
         "media": media_counts,
     }
     facets_json = json.dumps(facets)
+    # Extract richtext_tags for thread context tweets
+    for thread_tweets in thread_context.values():
+        for tweet in thread_tweets:
+            richtext_tags = extract_richtext_tags(tweet.get("raw_json"))
+            if richtext_tags:
+                tweet["richtext_tags"] = richtext_tags
     # Strip unused fields from thread context too
     stripped_thread_context = {
         conv_id: [{k: v for k, v in t.items() if k in used_fields} for t in thread_tweets]
@@ -371,6 +390,34 @@ def html(
         "function linkifyMentions(text) {",
         "  return text.replace(/@(\\w+)/g, "
         '\'<a href="https://x.com/$1" target="_blank">@$1</a>\');',
+        "}",
+        "function formatNewlines(text) {",
+        "  return text.replace(/\\n/g, '<br>');",
+        "}",
+        "function applyRichtext(text, tags) {",
+        "  if (!tags || !tags.length) return escapeHtml(text);",
+        "  // Sort tags by from_index in reverse order to avoid index shifting",
+        "  const sorted = [...tags].sort((a, b) => b.from_index - a.from_index);",
+        "  // Collect all boundaries",
+        "  const boundaries = new Set([0, text.length]);",
+        "  sorted.forEach(t => { boundaries.add(t.from_index); boundaries.add(t.to_index); });",
+        "  const sortedBoundaries = [...boundaries].sort((a, b) => a - b);",
+        "  // Build result by processing each segment",
+        "  let result = '';",
+        "  for (let i = 0; i < sortedBoundaries.length - 1; i++) {",
+        "    const start = sortedBoundaries[i];",
+        "    const end = sortedBoundaries[i + 1];",
+        "    let segment = escapeHtml(text.slice(start, end));",
+        "    // Find all tags that cover this segment",
+        "    for (const tag of sorted) {",
+        "      if (tag.from_index <= start && tag.to_index >= end) {",
+        "        if (tag.richtext_types.includes('Italic')) segment = `<em>${segment}</em>`;",
+        "        if (tag.richtext_types.includes('Bold')) segment = `<strong>${segment}</strong>`;",
+        "      }",
+        "    }",
+        "    result += segment;",
+        "  }",
+        "  return result;",
         "}",
         "function isValidMediaUrl(url) {",
         "  return url && (url.startsWith('https://pbs.twimg.com/') "
@@ -436,9 +483,10 @@ def html(
         "      : '<div class=\"avatar-placeholder\"></div>';",
         "    if (isThread) {",
         "      const threadHtml = threadTweets.map(th => {",
-        "        const txt = expandUrls(th.text, th.urls_json);",
+        "        const richTxt = applyRichtext(th.text, th.richtext_tags);",
+        "        const txt = expandUrls(richTxt, th.urls_json);",
         "        const star = th.id === t.id ? '\\u2B50 ' : '';",
-        "        return `<p>${star}${linkifyMentions(linkifyUrls(escapeHtml(txt)))}</p>`;",
+        "        return `<p>${star}${formatNewlines(linkifyMentions(linkifyUrls(txt)))}</p>`;",
         "      }).join('');",
         "      return `<article class='thread'>",
         "        ${av}",
@@ -448,21 +496,23 @@ def html(
         '        <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',
         "      </article>`;",
         "    }",
-        "    const txt = expandUrls(t.text, t.urls_json);",
+        "    const richTxt = applyRichtext(t.text, t.richtext_tags);",
+        "    const txt = expandUrls(richTxt, t.urls_json);",
         "    const rtHeader = t.is_retweet ? `<div class='retweet-header'>"
         "\\U0001F501 Retweeted by @${escapeHtml(t.author_username)}</div>` : '';",
         "    const qt = t.quoted_tweet_id ? TWEETS_MAP[t.quoted_tweet_id] : null;",
-        "    const qtText = qt ? expandUrls(qt.text, qt.urls_json) : '';",
+        "    const qtRichTxt = qt ? applyRichtext(qt.text, qt.richtext_tags) : '';",
+        "    const qtText = qt ? expandUrls(qtRichTxt, qt.urls_json) : '';",
         "    const qtHtml = (qt && qt.author_username && qt.text) ? `<div class='quoted-tweet'>"
         "<p><strong>${escapeHtml(qt.author_display_name || qt.author_username)}</strong> "
         "@${escapeHtml(qt.author_username)}</p>"
-        "<p>${linkifyMentions(linkifyUrls(escapeHtml(qtText)))}</p></div>` :"
+        "<p>${formatNewlines(linkifyMentions(linkifyUrls(qtText)))}</p></div>` :"
         "(t.quoted_tweet_id ? '<div class=\"quoted-tweet\">Quoted tweet unavailable</div>' : '');",
         "    return `<article>",
         "      ${rtHeader}",
         "      ${av}",
         "      <p><strong>${escapeHtml(dn)}</strong> @${escapeHtml(t.author_username)}</p>",
-        "      <p>${linkifyMentions(linkifyUrls(escapeHtml(txt)))}</p>",
+        "      <p>${formatNewlines(linkifyMentions(linkifyUrls(txt)))}</p>",
         "      ${renderMedia(t.media_json)}",
         "      ${qtHtml}",
         '      <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',

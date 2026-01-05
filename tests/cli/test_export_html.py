@@ -784,3 +784,103 @@ def test_html_export_handles_malformed_media_json(tmp_path: Path) -> None:
         # Should have error handler in renderMedia
         assert "console.error" in content
         assert "Failed to render media" in content
+
+
+def test_html_export_preserves_newlines(tmp_path: Path) -> None:
+    """HTML export should convert newlines to <br> tags for display."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have a function to convert newlines to <br>
+        # or should handle newlines in the text processing
+        assert (
+            ".replace(/\\n/g" in content  # JS regex to replace newlines
+            or "formatNewlines" in content
+            or "<br>" in content  # direct br tags
+        )
+
+
+def test_html_export_applies_richtext_formatting(tmp_path: Path) -> None:
+    """HTML export should apply bold/italic formatting from richtext_tags."""
+    import json
+
+    raw_json = json.dumps(
+        {
+            "note_tweet": {
+                "note_tweet_results": {
+                    "result": {
+                        "text": "Hello world today",
+                        "richtext": {
+                            "richtext_tags": [
+                                {"from_index": 0, "to_index": 5, "richtext_types": ["Bold"]},
+                                {"from_index": 12, "to_index": 17, "richtext_types": ["Italic"]},
+                            ]
+                        },
+                    }
+                }
+            }
+        }
+    )
+
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Hello world today",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+            "raw_json": raw_json,
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have a function to apply rich text formatting
+        assert "applyRichtext" in content
+        # Should have richtext_tags data in the tweet object
+        assert "richtext_tags" in content
+        # Should call applyRichtext in the rendering pipeline
+        assert "applyRichtext(" in content
