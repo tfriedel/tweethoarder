@@ -59,6 +59,9 @@ def build_bookmarks_url(query_id: str, cursor: str | None = None) -> str:
     variables: dict[str, str | int | bool] = {
         "count": 20,
         "includePromotedContent": False,
+        "withDownvotePerspective": False,
+        "withReactionsMetadata": False,
+        "withReactionsPerspective": False,
     }
     if cursor:
         variables["cursor"] = cursor
@@ -418,7 +421,8 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     note_tweet = raw_tweet.get("note_tweet", {}).get("note_tweet_results", {}).get("result", {})
     text = note_tweet.get("text") or legacy.get("full_text")
     author_id = user_result.get("rest_id")
-    author_username = user_core.get("screen_name")
+    # Try legacy.screen_name first (newer API), then core.screen_name (older API)
+    author_username = user_legacy.get("screen_name") or user_core.get("screen_name")
     created_at = _convert_twitter_date_to_iso8601(legacy.get("created_at"))
 
     if not all([tweet_id, text, author_id, author_username, created_at]):
@@ -441,7 +445,7 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
         "text": text,
         "author_id": author_id,
         "author_username": author_username,
-        "author_display_name": user_core.get("name"),
+        "author_display_name": user_legacy.get("name") or user_core.get("name"),
         "author_avatar_url": user_avatar.get("image_url")
         or user_legacy.get("profile_image_url_https"),
         "created_at": created_at,
