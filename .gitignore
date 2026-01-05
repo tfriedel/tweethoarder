@@ -290,4 +290,5 @@ tags
 # End of https://www.toptal.com/developers/gitignore/api/linux,macos,visualstudiocode,vim,python,jupyternotebooks,venv,virtualenv
 
 # TDD-Guard
-.claude/tdd-guard/
+.claude/tdd-guard/.env.test-account
+.env.real-account
