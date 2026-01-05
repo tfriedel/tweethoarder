@@ -386,11 +386,17 @@ async def sync_tweets_async(
     with_threads: bool = False,
     thread_mode: str = "thread",
     store_raw: bool = False,
+    progress: Progress | None = None,
 ) -> dict[str, int]:
-    """Sync user's tweets asynchronously."""
+    """Sync user's tweets asynchronously.
+
+    Note: This function syncs only original tweets, not replies.
+    Replies should be synced using sync_replies_async() instead.
+    """
     from tweethoarder.client.timelines import (
         extract_quoted_tweet,
         fetch_user_tweets_page,
+        is_reply,
         parse_user_tweets_response,
     )
 
@@ -414,6 +420,10 @@ async def sync_tweets_async(
     cursor: str | None = None
     synced_tweet_ids: list[str] = []
 
+    # Set up progress tracking
+    total = int(count) if count != float("inf") else None
+    sync_task = progress.add_task("Syncing tweets", total=total) if progress else None
+
     async with httpx.AsyncClient(headers=headers) as http_client:
         while synced_count < count:
             response = await fetch_user_tweets_page(
@@ -431,6 +441,9 @@ async def sync_tweets_async(
                 if synced_count >= count:
                     break
                 raw_tweet = entry["tweet"]
+                # Skip replies - they should be synced using sync_replies_async
+                if is_reply(raw_tweet):
+                    continue
                 sort_index = entry.get("sort_index")
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data:
@@ -444,6 +457,8 @@ async def sync_tweets_async(
                     add_to_collection(db_path, tweet_data["id"], "tweet", sort_index=sort_index)
                     synced_tweet_ids.append(tweet_data["id"])
                     synced_count += 1
+                    if progress and sync_task is not None:
+                        progress.update(sync_task, completed=synced_count)
 
             if not cursor:
                 break
@@ -493,6 +508,7 @@ async def sync_reposts_async(
     with_threads: bool = False,
     thread_mode: str = "thread",
     store_raw: bool = False,
+    progress: Progress | None = None,
 ) -> dict[str, int]:
     """Sync user's reposts asynchronously."""
     from tweethoarder.client.timelines import (
@@ -521,6 +537,10 @@ async def sync_reposts_async(
     headers = client.get_base_headers()
     cursor: str | None = None
     synced_tweet_ids: list[str] = []
+
+    # Set up progress tracking
+    total = int(count) if count != float("inf") else None
+    sync_task = progress.add_task("Syncing reposts", total=total) if progress else None
 
     async with httpx.AsyncClient(headers=headers) as http_client:
         while synced_count < count:
@@ -554,6 +574,8 @@ async def sync_reposts_async(
                     add_to_collection(db_path, tweet_data["id"], "repost", sort_index=sort_index)
                     synced_tweet_ids.append(tweet_data["id"])
                     synced_count += 1
+                    if progress and sync_task is not None:
+                        progress.update(sync_task, completed=synced_count)
 
             if not cursor:
                 break
@@ -595,3 +617,290 @@ def reposts(
         )
     )
     typer.echo(f"Synced {result['synced_count']} reposts.")
+
+
+async def sync_replies_async(
+    db_path: Path,
+    count: float,
+    with_threads: bool = False,
+    thread_mode: str = "thread",
+    store_raw: bool = False,
+    progress: Progress | None = None,
+) -> dict[str, int]:
+    """Sync user's replies asynchronously.
+
+    Fetches tweets that are replies to other users' tweets and saves them
+    to the local database with collection type 'reply'. Also fetches and saves
+    the immediate parent tweet for each reply.
+    """
+    from tweethoarder.client.timelines import (
+        extract_quoted_tweet,
+        fetch_tweet_detail_page,
+        fetch_user_tweets_page,
+        is_reply,
+        parse_user_tweets_response,
+    )
+    from tweethoarder.storage.database import tweet_exists
+
+    init_database(db_path)
+
+    cookies = resolve_cookies()
+    if not cookies:
+        raise ValueError("No cookies found")
+
+    client = TwitterClient(cookies)
+    cache_path = get_config_dir() / "query-ids-cache.json"
+    store = QueryIdStore(cache_path)
+    query_id = get_query_id_with_fallback(store, "UserTweets")
+    tweet_detail_query_id = get_query_id_with_fallback(store, "TweetDetail")
+
+    user_id = cookies.get("twid", "").replace("u%3D", "")
+    if not user_id:
+        raise ValueError("Could not determine user ID from cookies")
+
+    synced_count = 0
+    headers = client.get_base_headers()
+    cursor: str | None = None
+    synced_tweet_ids: list[str] = []
+    parent_tweet_ids: set[str] = set()
+
+    # Set up progress tracking
+    total = int(count) if count != float("inf") else None
+    sync_task = progress.add_task("Syncing replies", total=total) if progress else None
+
+    async with httpx.AsyncClient(headers=headers) as http_client:
+        while synced_count < count:
+            response = await fetch_user_tweets_page(
+                http_client,
+                query_id,
+                user_id,
+                cursor,
+            )
+            entries, cursor = parse_user_tweets_response(response)
+
+            if not entries:
+                break
+
+            for entry in entries:
+                if synced_count >= count:
+                    break
+                raw_tweet = entry["tweet"]
+                sort_index = entry.get("sort_index")
+                # Only sync replies
+                if not is_reply(raw_tweet):
+                    continue
+                tweet_data = extract_tweet_data(raw_tweet)
+                if tweet_data:
+                    if store_raw:
+                        tweet_data["raw_json"] = json.dumps(raw_tweet)
+                    save_tweet(db_path, tweet_data)
+                    # Also save the quoted tweet if present
+                    quoted_tweet_data = extract_quoted_tweet(raw_tweet)
+                    if quoted_tweet_data:
+                        save_tweet(db_path, quoted_tweet_data)
+                    add_to_collection(db_path, tweet_data["id"], "reply", sort_index=sort_index)
+                    synced_tweet_ids.append(tweet_data["id"])
+                    # Collect parent tweet ID for later fetching
+                    parent_id = tweet_data.get("in_reply_to_tweet_id")
+                    if parent_id:
+                        parent_tweet_ids.add(parent_id)
+                    synced_count += 1
+                    if progress and sync_task is not None:
+                        progress.update(sync_task, completed=synced_count)
+
+            if not cursor:
+                break
+
+        # Fetch parent tweets that aren't already in the database
+        for parent_id in parent_tweet_ids:
+            if tweet_exists(db_path, parent_id):
+                continue
+            try:
+                parent_response = await fetch_tweet_detail_page(
+                    http_client, tweet_detail_query_id, parent_id
+                )
+                # Extract parent tweet from TweetDetail response
+                parent_result = parent_response.get("data", {}).get("tweetResult", {}).get("result")
+                if parent_result:
+                    parent_data = extract_tweet_data(parent_result)
+                    if parent_data:
+                        save_tweet(db_path, parent_data)
+                # Add delay to avoid rate limiting
+                await asyncio.sleep(THREAD_FETCH_DELAY)
+            except httpx.HTTPStatusError:
+                # Parent tweet may be deleted or unavailable
+                pass
+
+    # Fetch threads for all synced tweets if enabled
+    if with_threads:
+        for tweet_id in synced_tweet_ids:
+            await fetch_thread_async(db_path=db_path, tweet_id=tweet_id, mode=thread_mode)
+
+    return {"synced_count": synced_count}
+
+
+@app.command()
+def replies(
+    count: int = typer.Option(100, "--count", "-c", help="Number of replies to sync."),
+    all_replies: bool = typer.Option(False, "--all", help="Sync all replies (ignore count)."),
+    with_threads: bool = typer.Option(False, "--with-threads", help="Fetch thread context."),
+    thread_mode: str = typer.Option(
+        "thread", "--thread-mode", help="Thread mode: thread (author only) or conversation."
+    ),
+    store_raw: bool = typer.Option(
+        True, "--store-raw/--no-store-raw", help="Store raw API response JSON."
+    ),
+) -> None:
+    """Sync user's replies to local storage."""
+    import asyncio
+
+    from tweethoarder.config import get_data_dir
+
+    db_path = get_data_dir() / "tweethoarder.db"
+    effective_count = float("inf") if all_replies else count
+    result = asyncio.run(
+        sync_replies_async(
+            db_path,
+            effective_count,
+            with_threads=with_threads,
+            thread_mode=thread_mode,
+            store_raw=store_raw,
+        )
+    )
+    typer.echo(f"Synced {result['synced_count']} replies.")
+
+
+async def sync_posts_async(
+    db_path: Path,
+    count: float,
+    with_threads: bool = False,
+    thread_mode: str = "thread",
+    store_raw: bool = False,
+    progress: Progress | None = None,
+) -> dict[str, int]:
+    """Sync user's posts (tweets and reposts) in a single API pass.
+
+    This is more efficient than syncing tweets and reposts separately,
+    as it only makes one API call for both types.
+    """
+    from tweethoarder.client.timelines import (
+        extract_quoted_tweet,
+        fetch_user_tweets_page,
+        is_reply,
+        is_repost,
+        parse_user_tweets_response,
+    )
+
+    init_database(db_path)
+
+    cookies = resolve_cookies()
+    if not cookies:
+        raise ValueError("No cookies found")
+
+    client = TwitterClient(cookies)
+    cache_path = get_config_dir() / "query-ids-cache.json"
+    store = QueryIdStore(cache_path)
+    query_id = get_query_id_with_fallback(store, "UserTweets")
+
+    user_id = cookies.get("twid", "").replace("u%3D", "")
+    if not user_id:
+        raise ValueError("Could not determine user ID from cookies")
+
+    tweets_count = 0
+    reposts_count = 0
+    headers = client.get_base_headers()
+    cursor: str | None = None
+
+    # Set up progress tracking
+    total = int(count) if count != float("inf") else None
+    sync_task = progress.add_task("Syncing posts", total=total) if progress else None
+
+    async with httpx.AsyncClient(headers=headers) as http_client:
+        while (tweets_count + reposts_count) < count:
+            response = await fetch_user_tweets_page(
+                http_client,
+                query_id,
+                user_id,
+                cursor,
+            )
+            entries, cursor = parse_user_tweets_response(response)
+
+            if not entries:
+                break
+
+            for entry in entries:
+                if (tweets_count + reposts_count) >= count:
+                    break
+                raw_tweet = entry["tweet"]
+                sort_index = entry.get("sort_index")
+
+                # Skip replies - they're not part of posts
+                if is_reply(raw_tweet):
+                    continue
+
+                tweet_data = extract_tweet_data(raw_tweet)
+                if tweet_data:
+                    if store_raw:
+                        tweet_data["raw_json"] = json.dumps(raw_tweet)
+                    save_tweet(db_path, tweet_data)
+                    # Also save the quoted tweet if present
+                    quoted_tweet_data = extract_quoted_tweet(raw_tweet)
+                    if quoted_tweet_data:
+                        save_tweet(db_path, quoted_tweet_data)
+
+                    # Classify as tweet or repost
+                    if is_repost(raw_tweet):
+                        add_to_collection(
+                            db_path, tweet_data["id"], "repost", sort_index=sort_index
+                        )
+                        reposts_count += 1
+                    else:
+                        add_to_collection(db_path, tweet_data["id"], "tweet", sort_index=sort_index)
+                        tweets_count += 1
+
+                    if progress and sync_task is not None:
+                        progress.update(sync_task, completed=tweets_count + reposts_count)
+
+            if not cursor:
+                break
+
+    return {"tweets_count": tweets_count, "reposts_count": reposts_count}
+
+
+@app.command()
+def posts(
+    count: int = typer.Option(100, "--count", "-c", help="Number of posts to sync."),
+    all_posts: bool = typer.Option(False, "--all", help="Sync all posts (ignore count)."),
+    with_threads: bool = typer.Option(False, "--with-threads", help="Fetch thread context."),
+    thread_mode: str = typer.Option(
+        "thread", "--thread-mode", help="Thread mode: thread (author only) or conversation."
+    ),
+    store_raw: bool = typer.Option(
+        True, "--store-raw/--no-store-raw", help="Store raw API response JSON."
+    ),
+) -> None:
+    """Sync all your posts (tweets and reposts) to local storage.
+
+    Uses a single API pass to fetch both tweets and reposts efficiently.
+    Note: Replies are not available via the Twitter API's UserTweets endpoint.
+    """
+    import asyncio
+
+    from tweethoarder.config import get_data_dir
+
+    db_path = get_data_dir() / "tweethoarder.db"
+    effective_count = float("inf") if all_posts else count
+
+    with create_sync_progress() as progress:
+        result = asyncio.run(
+            sync_posts_async(
+                db_path,
+                effective_count,
+                with_threads=with_threads,
+                thread_mode=thread_mode,
+                store_raw=store_raw,
+                progress=progress,
+            )
+        )
+
+    typer.echo(f"Synced {result['tweets_count']} tweets, {result['reposts_count']} reposts.")

@@ -22,6 +22,7 @@ class TwitterClient:
         """Get base HTTP headers for API requests."""
         return {
             "accept": "*/*",
+            "accept-language": "en-US,en;q=0.9",
             "authorization": BEARER_TOKEN,
             "x-csrf-token": self._ct0,
             "x-twitter-auth-type": "OAuth2Session",
@@ -30,9 +31,15 @@ class TwitterClient:
             "cookie": f"auth_token={self._auth_token}; ct0={self._ct0}",
             "origin": "https://x.com",
             "referer": "https://x.com/",
+            "sec-ch-ua": '"Not A(Brand";v="8", "Chromium";v="132", "Google Chrome";v="132"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"macOS"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
             "user-agent": (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36"
             ),
         }
 

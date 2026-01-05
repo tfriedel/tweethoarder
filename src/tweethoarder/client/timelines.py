@@ -13,6 +13,7 @@ from tweethoarder.client.features import (
     build_bookmarks_features,
     build_likes_features,
     build_tweet_detail_features,
+    build_user_tweets_features,
 )
 from tweethoarder.query_ids.constants import TWITTER_API_BASE
 
@@ -134,11 +135,66 @@ def build_bookmarks_url(query_id: str, cursor: str | None = None) -> str:
 
 def build_user_tweets_url(query_id: str, user_id: str, cursor: str | None = None) -> str:
     """Build URL for fetching user tweets from Twitter GraphQL API."""
-    variables: dict[str, str] = {"userId": user_id}
+    variables: dict[str, str | int | bool] = {
+        "userId": user_id,
+        "count": 20,
+        "includePromotedContent": True,
+        "withQuickPromoteEligibilityTweetFields": True,
+        "withVoice": True,
+        "withV2Timeline": True,
+    }
     if cursor:
         variables["cursor"] = cursor
-    params = urlencode({"variables": json.dumps(variables)})
+    features = build_user_tweets_features()
+    field_toggles = {
+        "withArticlePlainText": False,
+        "withArticleRichContentState": True,
+        "withAuxiliaryUserLabels": False,
+        "withPayments": False,
+        "withGrokAnalyze": False,
+        "withDisallowedReplyControls": False,
+    }
+    params = urlencode(
+        {
+            "variables": json.dumps(variables, separators=(",", ":")),
+            "features": json.dumps(features, separators=(",", ":")),
+            "fieldToggles": json.dumps(field_toggles, separators=(",", ":")),
+        }
+    )
     return f"{TWITTER_API_BASE}/{query_id}/UserTweets?{params}"
+
+
+def build_user_tweets_and_replies_url(
+    query_id: str, user_id: str, cursor: str | None = None
+) -> str:
+    """Build URL for fetching user tweets and replies from Twitter GraphQL API."""
+    variables: dict[str, str | int | bool] = {
+        "userId": user_id,
+        "count": 20,
+        "includePromotedContent": True,
+        "withCommunity": False,
+        "withVoice": True,
+        "withV2Timeline": True,
+    }
+    if cursor:
+        variables["cursor"] = cursor
+    features = build_user_tweets_features()
+    field_toggles = {
+        "withArticlePlainText": False,
+        "withArticleRichContentState": True,
+        "withAuxiliaryUserLabels": False,
+        "withPayments": False,
+        "withGrokAnalyze": False,
+        "withDisallowedReplyControls": False,
+    }
+    params = urlencode(
+        {
+            "variables": json.dumps(variables, separators=(",", ":")),
+            "features": json.dumps(features, separators=(",", ":")),
+            "fieldToggles": json.dumps(field_toggles, separators=(",", ":")),
+        }
+    )
+    return f"{TWITTER_API_BASE}/{query_id}/UserTweetsAndReplies?{params}"
 
 
 def build_likes_url(query_id: str, user_id: str, cursor: str | None = None) -> str:
@@ -180,6 +236,20 @@ async def fetch_user_tweets_page(
 ) -> dict[str, Any]:
     """Fetch a page of user tweets from the Twitter API."""
     url = build_user_tweets_url(query_id, user_id, cursor)
+    response = await client.get(url)
+    response.raise_for_status()
+    result: dict[str, Any] = response.json()
+    return result
+
+
+async def fetch_user_tweets_and_replies_page(
+    client: httpx.AsyncClient,
+    query_id: str,
+    user_id: str,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Fetch a page of user tweets and replies from the Twitter API."""
+    url = build_user_tweets_and_replies_url(query_id, user_id, cursor)
     response = await client.get(url)
     response.raise_for_status()
     result: dict[str, Any] = response.json()
@@ -320,13 +390,10 @@ def parse_user_tweets_response(
     entries: list[dict[str, Any]] = []
     cursor: str | None = None
 
-    timeline = (
-        response.get("data", {})
-        .get("user", {})
-        .get("result", {})
-        .get("timeline_v2", {})
-        .get("timeline", {})
-    )
+    result = response.get("data", {}).get("user", {}).get("result", {})
+    # Handle both timeline_v2 (older API) and timeline (newer API) structures
+    timeline_container = result.get("timeline_v2") or result.get("timeline", {})
+    timeline = timeline_container.get("timeline", {})
 
     for instruction in timeline.get("instructions", []):
         if instruction.get("type") != "TimelineAddEntries":
@@ -483,6 +550,19 @@ def is_repost(raw_tweet: dict[str, Any]) -> bool:
     return "retweeted_status_result" in legacy
 
 
+def is_reply(raw_tweet: dict[str, Any]) -> bool:
+    """Check if a raw tweet is a reply to another tweet."""
+    legacy = raw_tweet.get("legacy", {})
+    return bool(legacy.get("in_reply_to_status_id_str"))
+
+
+def _decode_html_entities(text: str) -> str:
+    """Decode HTML entities in text (e.g., &gt; -> >, &lt; -> <, &amp; -> &)."""
+    import html
+
+    return html.unescape(text)
+
+
 def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     """Extract and convert raw tweet data to database format.
 
@@ -502,23 +582,83 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     user_avatar = user_result.get("avatar", {})
 
     tweet_id = raw_tweet.get("rest_id")
-    # Use note_tweet for long tweets, fallback to legacy.full_text
-    note_tweet = raw_tweet.get("note_tweet", {}).get("note_tweet_results", {}).get("result", {})
-    text = note_tweet.get("text") or legacy.get("full_text")
-    author_id = user_result.get("rest_id")
-    # Try legacy.screen_name first (newer API), then core.screen_name (older API)
-    author_username = user_legacy.get("screen_name") or user_core.get("screen_name")
     created_at = _convert_twitter_date_to_iso8601(legacy.get("created_at"))
+
+    # Check if this is a retweet
+    retweet_result = legacy.get("retweeted_status_result", {}).get("result", {})
+    is_retweet = bool(retweet_result)
+
+    # For retweets, use the original tweet's author and content
+    if is_retweet:
+        rt_legacy = retweet_result.get("legacy", {})
+        rt_note = (
+            retweet_result.get("note_tweet", {}).get("note_tweet_results", {}).get("result", {})
+        )
+        # Prefer original tweet's text, fall back to RT text if not available
+        text = rt_note.get("text") or rt_legacy.get("full_text") or legacy.get("full_text")
+        # Use original tweet's entities if available
+        entities = rt_legacy.get("entities", {}) or legacy.get("entities", {})
+        extended_entities = rt_legacy.get("extended_entities", {}) or legacy.get(
+            "extended_entities", {}
+        )
+        # Use ORIGINAL author for retweets
+        rt_user_result = retweet_result.get("core", {}).get("user_results", {}).get("result", {})
+        rt_user_core = rt_user_result.get("core", {})
+        rt_user_legacy = rt_user_result.get("legacy", {})
+        rt_user_avatar = rt_user_result.get("avatar", {})
+        # Original author info (fall back to retweeter if not available)
+        author_id = rt_user_result.get("rest_id") or user_result.get("rest_id")
+        author_username = (
+            rt_user_legacy.get("screen_name")
+            or rt_user_core.get("screen_name")
+            or user_legacy.get("screen_name")
+            or user_core.get("screen_name")
+        )
+        author_display_name = (
+            rt_user_legacy.get("name")
+            or rt_user_core.get("name")
+            or user_legacy.get("name")
+            or user_core.get("name")
+        )
+        author_avatar_url = (
+            rt_user_avatar.get("image_url")
+            or rt_user_legacy.get("profile_image_url_https")
+            or user_avatar.get("image_url")
+            or user_legacy.get("profile_image_url_https")
+        )
+        # Retweeter info
+        retweeter_username = user_legacy.get("screen_name") or user_core.get("screen_name")
+    else:
+        # Use note_tweet for long tweets, fallback to legacy.full_text
+        note_tweet = raw_tweet.get("note_tweet", {}).get("note_tweet_results", {}).get("result", {})
+        text = note_tweet.get("text") or legacy.get("full_text")
+        entities = legacy.get("entities", {})
+        extended_entities = legacy.get("extended_entities", {})
+        # Author info
+        author_id = user_result.get("rest_id")
+        author_username = user_legacy.get("screen_name") or user_core.get("screen_name")
+        author_display_name = user_legacy.get("name") or user_core.get("name")
+        author_avatar_url = user_avatar.get("image_url") or user_legacy.get(
+            "profile_image_url_https"
+        )
+        retweeter_username = None
+
+    # Decode HTML entities in text (e.g., &gt; -> >)
+    if text:
+        text = _decode_html_entities(text)
 
     if not all([tweet_id, text, author_id, author_username, created_at]):
         return None
 
-    entities = legacy.get("entities", {})
-    extended_entities = legacy.get("extended_entities", {})
-    retweet_result = legacy.get("retweeted_status_result", {}).get("result", {})
     # Quote tweets: try new GraphQL API format first, fallback to legacy
     quoted_result = raw_tweet.get("quoted_status_result", {}).get("result", {})
     quoted_tweet_id = quoted_result.get("rest_id") or legacy.get("quoted_status_id_str")
+    # For retweets, also check if the retweeted status has a quote
+    if is_retweet and not quoted_tweet_id:
+        rt_quoted = retweet_result.get("quoted_status_result", {}).get("result", {})
+        quoted_tweet_id = rt_quoted.get("rest_id") or retweet_result.get("legacy", {}).get(
+            "quoted_status_id_str"
+        )
 
     urls = entities.get("urls")
     media = extended_entities.get("media")
@@ -530,16 +670,16 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
         "text": text,
         "author_id": author_id,
         "author_username": author_username,
-        "author_display_name": user_legacy.get("name") or user_core.get("name"),
-        "author_avatar_url": user_avatar.get("image_url")
-        or user_legacy.get("profile_image_url_https"),
+        "author_display_name": author_display_name,
+        "author_avatar_url": author_avatar_url,
         "created_at": created_at,
         "conversation_id": legacy.get("conversation_id_str"),
         "in_reply_to_tweet_id": legacy.get("in_reply_to_status_id_str"),
         "in_reply_to_user_id": legacy.get("in_reply_to_user_id_str"),
         "quoted_tweet_id": quoted_tweet_id,
-        "is_retweet": "retweeted_status_result" in legacy,
-        "retweeted_tweet_id": retweet_result.get("rest_id"),
+        "is_retweet": is_retweet,
+        "retweeted_tweet_id": retweet_result.get("rest_id") if is_retweet else None,
+        "retweeter_username": retweeter_username,
         "urls_json": json.dumps(_strip_urls(urls)) if urls else None,
         "media_json": json.dumps(_strip_media(media)) if media else None,
         "hashtags_json": json.dumps(_strip_hashtags(hashtags)) if hashtags else None,
@@ -560,7 +700,18 @@ def extract_quoted_tweet(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     Returns:
         Dictionary with normalized quoted tweet data, or None if no quoted tweet.
     """
+    # Check for direct quote tweet at top level
     quoted_result = raw_tweet.get("quoted_status_result", {}).get("result", {})
-    if not quoted_result or not quoted_result.get("rest_id"):
-        return None
-    return extract_tweet_data(quoted_result)
+    if quoted_result and quoted_result.get("rest_id"):
+        return extract_tweet_data(quoted_result)
+
+    # Check for retweet of a quote tweet (nested structure)
+    retweeted_result = (
+        raw_tweet.get("legacy", {}).get("retweeted_status_result", {}).get("result", {})
+    )
+    if retweeted_result:
+        quoted_result = retweeted_result.get("quoted_status_result", {}).get("result", {})
+        if quoted_result and quoted_result.get("rest_id"):
+            return extract_tweet_data(quoted_result)
+
+    return None

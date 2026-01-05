@@ -695,3 +695,98 @@ def test_get_tweets_by_conversation_id_returns_matching_tweets(tmp_path: Path) -
     assert len(tweets) == 2
     assert tweets[0]["id"] == "123"
     assert tweets[1]["id"] == "456"
+
+
+def test_tweet_exists_returns_true_for_existing_tweet(tmp_path: Path) -> None:
+    """tweet_exists should return True for tweets in database."""
+    from tweethoarder.storage.database import init_database, save_tweet, tweet_exists
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "123",
+            "text": "Test tweet",
+            "author_id": "456",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+
+    assert tweet_exists(db_path, "123") is True
+
+
+def test_tweet_exists_returns_false_for_missing_tweet(tmp_path: Path) -> None:
+    """tweet_exists should return False for tweets not in database."""
+    from tweethoarder.storage.database import init_database, tweet_exists
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    assert tweet_exists(db_path, "nonexistent") is False
+
+
+def test_get_parent_tweet_returns_parent(tmp_path: Path) -> None:
+    """get_parent_tweet should return the parent tweet for a reply."""
+    from tweethoarder.storage.database import get_parent_tweet, init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Save parent tweet
+    save_tweet(
+        db_path,
+        {
+            "id": "parent123",
+            "text": "Parent tweet",
+            "author_id": "user1",
+            "author_username": "parent_user",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+
+    # Save reply with in_reply_to_tweet_id
+    save_tweet(
+        db_path,
+        {
+            "id": "reply456",
+            "text": "This is a reply",
+            "author_id": "user2",
+            "author_username": "reply_user",
+            "created_at": "2025-01-01T12:05:00Z",
+            "in_reply_to_tweet_id": "parent123",
+        },
+    )
+
+    parent = get_parent_tweet(db_path, "reply456")
+
+    assert parent is not None
+    assert parent["id"] == "parent123"
+    assert parent["text"] == "Parent tweet"
+
+
+def test_get_parent_tweet_returns_none_for_missing_parent(tmp_path: Path) -> None:
+    """get_parent_tweet should return None when parent tweet is not in database."""
+    from tweethoarder.storage.database import get_parent_tweet, init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Save reply with in_reply_to_tweet_id pointing to missing parent
+    save_tweet(
+        db_path,
+        {
+            "id": "reply456",
+            "text": "This is a reply",
+            "author_id": "user2",
+            "author_username": "reply_user",
+            "created_at": "2025-01-01T12:05:00Z",
+            "in_reply_to_tweet_id": "missing_parent",
+        },
+    )
+
+    parent = get_parent_tweet(db_path, "reply456")
+
+    assert parent is None

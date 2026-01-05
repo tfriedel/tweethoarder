@@ -832,3 +832,153 @@ def test_export_html_continues_on_thread_context_error(tmp_path: Path) -> None:
         content = output_path.read_text()
         # Tweet should still be exported
         assert "Tweet with thread context" in content
+
+
+def test_export_json_supports_replies_collection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Export json should support replies collection."""
+    import json
+
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "reply_1",
+            "text": "This is a reply",
+            "author_id": "user1",
+            "author_username": "replier",
+            "created_at": "2025-01-01T12:00:00Z",
+            "in_reply_to_tweet_id": "parent_1",
+        },
+    )
+    add_to_collection(db_path, "reply_1", "reply")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.json"
+    result = runner.invoke(
+        app,
+        ["export", "json", "--collection", "replies", "--output", str(output_path)],
+    )
+
+    assert result.exit_code == 0
+    content = json.loads(output_path.read_text())
+    assert len(content["tweets"]) == 1
+    assert content["tweets"][0]["id"] == "reply_1"
+
+
+def test_export_markdown_replies_shows_parent_tweet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Export markdown for replies should include parent tweet context."""
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    # Create parent tweet
+    save_tweet(
+        db_path,
+        {
+            "id": "parent_1",
+            "text": "This is the original tweet",
+            "author_id": "original_author",
+            "author_username": "original",
+            "created_at": "2025-01-01T11:00:00Z",
+        },
+    )
+    # Create reply
+    save_tweet(
+        db_path,
+        {
+            "id": "reply_1",
+            "text": "This is my reply",
+            "author_id": "replier_id",
+            "author_username": "replier",
+            "created_at": "2025-01-01T12:00:00Z",
+            "in_reply_to_tweet_id": "parent_1",
+        },
+    )
+    add_to_collection(db_path, "reply_1", "reply")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.md"
+    result = runner.invoke(
+        app,
+        ["export", "markdown", "--collection", "replies", "--output", str(output_path)],
+    )
+
+    assert result.exit_code == 0
+    content = output_path.read_text()
+    # Should show "My Replies" title
+    assert "My Replies" in content
+    # Should include the reply text
+    assert "This is my reply" in content
+    # Should include the parent tweet context
+    assert "In reply to @original" in content
+    assert "This is the original tweet" in content
+
+
+def test_export_json_posts_combines_tweets_replies_reposts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Export json with --collection posts should combine tweets, replies, and reposts."""
+    import json
+
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    # Create a tweet
+    save_tweet(
+        db_path,
+        {
+            "id": "my_tweet",
+            "text": "My original tweet",
+            "author_id": "me",
+            "author_username": "myuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "my_tweet", "tweet")
+
+    # Create a repost
+    save_tweet(
+        db_path,
+        {
+            "id": "my_repost",
+            "text": "RT @other: Great content",
+            "author_id": "me",
+            "author_username": "myuser",
+            "created_at": "2025-01-01T14:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "my_repost", "repost")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.json"
+    result = runner.invoke(
+        app,
+        ["export", "json", "--collection", "posts", "--output", str(output_path)],
+    )
+
+    assert result.exit_code == 0
+    content = json.loads(output_path.read_text())
+    # Posts = tweets + reposts (replies not available via API)
+    assert len(content["tweets"]) == 2
+    tweet_ids = {t["id"] for t in content["tweets"]}
+    assert tweet_ids == {"my_tweet", "my_repost"}

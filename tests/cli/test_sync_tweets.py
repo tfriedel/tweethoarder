@@ -369,6 +369,43 @@ def _make_tweet_entry(tweet_id: str, text: str = "Hello") -> dict:
     }
 
 
+def _make_reply_entry(tweet_id: str, in_reply_to_id: str, text: str = "Reply") -> dict:
+    """Create a mock reply tweet entry for testing."""
+    return {
+        "entryId": f"tweet-{tweet_id}",
+        "content": {
+            "itemContent": {
+                "tweet_results": {
+                    "result": {
+                        "rest_id": tweet_id,
+                        "legacy": {
+                            "full_text": text,
+                            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+                            "conversation_id_str": in_reply_to_id,
+                            "in_reply_to_status_id_str": in_reply_to_id,
+                            "reply_count": 0,
+                            "retweet_count": 0,
+                            "favorite_count": 0,
+                            "quote_count": 0,
+                        },
+                        "core": {
+                            "user_results": {
+                                "result": {
+                                    "rest_id": "456",
+                                    "core": {
+                                        "screen_name": "testuser",
+                                        "name": "Test User",
+                                    },
+                                }
+                            }
+                        },
+                    }
+                }
+            },
+        },
+    }
+
+
 def _make_tweets_response(entries: list) -> dict:
     """Create a mock user tweets API response."""
     return {
@@ -502,3 +539,45 @@ async def test_sync_tweets_async_fetches_threads_for_all_synced_tweets(tmp_path:
         # Verify each tweet ID was passed
         call_tweet_ids = [call[1]["tweet_id"] for call in mock_fetch_thread.call_args_list]
         assert set(call_tweet_ids) == {"111", "222", "333"}
+
+
+@pytest.mark.asyncio
+async def test_sync_tweets_async_excludes_replies(tmp_path: Path) -> None:
+    """sync_tweets_async should NOT sync tweets that are replies."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_tweets_async
+
+    db_path = tmp_path / "test.db"
+
+    # Response with one regular tweet and one reply
+    mock_response = _make_tweets_response(
+        [
+            _make_tweet_entry("123", "Regular tweet"),
+            _make_reply_entry("456", "999", "This is a reply"),
+        ]
+    )
+
+    with (
+        patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies,
+        patch("tweethoarder.cli.sync.TwitterClient") as mock_client_class,
+        patch("tweethoarder.cli.sync.get_config_dir") as mock_config_dir,
+        patch("tweethoarder.cli.sync.get_query_id_with_fallback") as mock_get_query_id,
+        patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_async_client,
+    ):
+        mock_cookies.return_value = {"twid": "u%3D789"}
+        mock_client_class.return_value.get_base_headers.return_value = {}
+        mock_config_dir.return_value = tmp_path
+        mock_get_query_id.return_value = "ABC123"
+
+        mock_http = AsyncMock()
+        mock_http_response = MagicMock()
+        mock_http_response.json.return_value = mock_response
+        mock_http_response.raise_for_status = MagicMock()
+        mock_http.get.return_value = mock_http_response
+        mock_async_client.return_value.__aenter__.return_value = mock_http
+
+        result = await sync_tweets_async(db_path, count=10)
+
+        # Should only sync the regular tweet, not the reply
+        assert result["synced_count"] == 1

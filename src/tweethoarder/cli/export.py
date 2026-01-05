@@ -16,7 +16,7 @@ def json(
     collection: str | None = typer.Option(
         None,
         "--collection",
-        help="Filter by collection type (likes, bookmarks, tweets, reposts).",
+        help="Filter by collection type (likes, bookmarks, tweets, reposts, replies, posts).",
     ),
     folder: str | None = typer.Option(
         None,
@@ -38,6 +38,7 @@ def json(
         get_all_tweets,
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
+        get_tweets_by_collections,
     )
 
     data_dir = get_data_dir()
@@ -47,6 +48,9 @@ def json(
     tweets: list[dict[str, Any]]
     if folder and collection_type == "bookmark":
         tweets = get_tweets_by_bookmark_folder(db_path, folder)
+    elif isinstance(collection_type, list):
+        # Combined collection (e.g., "posts" = tweets + replies + reposts)
+        tweets = get_tweets_by_collections(db_path, collection_type)
     elif collection_type:
         tweets = get_tweets_by_collection(db_path, collection_type)
     else:
@@ -76,6 +80,8 @@ COLLECTION_MAP = {
     "bookmarks": "bookmark",
     "tweets": "tweet",
     "reposts": "repost",
+    "replies": "reply",
+    "posts": ["tweet", "repost"],  # Combined collection (replies not available via API)
 }
 
 
@@ -84,7 +90,7 @@ def markdown(
     collection: str | None = typer.Option(
         None,
         "--collection",
-        help="Filter by collection type (likes, bookmarks, tweets, reposts).",
+        help="Filter by collection type (likes, bookmarks, tweets, reposts, replies, posts).",
     ),
     folder: str | None = typer.Option(
         None,
@@ -104,6 +110,7 @@ def markdown(
         get_all_tweets,
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
+        get_tweets_by_collections,
         get_tweets_by_conversation_id,
         get_tweets_by_ids,
     )
@@ -115,6 +122,8 @@ def markdown(
     tweets: list[dict[str, Any]]
     if folder and collection_type == "bookmark":
         tweets = get_tweets_by_bookmark_folder(db_path, folder)
+    elif isinstance(collection_type, list):
+        tweets = get_tweets_by_collections(db_path, collection_type)
     elif collection_type:
         tweets = get_tweets_by_collection(db_path, collection_type)
     else:
@@ -143,8 +152,22 @@ def markdown(
     for t in tweets:
         quoted_tweets[t["id"]] = t
 
+    # Collect parent tweet IDs for replies and fetch them
+    parent_tweet_ids = [
+        t["in_reply_to_tweet_id"]
+        for t in tweets
+        if t.get("in_reply_to_tweet_id")
+        and t["in_reply_to_tweet_id"] not in tweet_ids_in_collection
+    ]
+    parent_tweets_list = get_tweets_by_ids(db_path, parent_tweet_ids)
+    parent_tweets = {t["id"]: t for t in parent_tweets_list}
+
     content = export_tweets_to_markdown(
-        tweets, collection=collection, thread_context=thread_context, quoted_tweets=quoted_tweets
+        tweets,
+        collection=collection,
+        thread_context=thread_context,
+        quoted_tweets=quoted_tweets,
+        parent_tweets=parent_tweets,
     )
 
     output_path = output or _get_default_export_path(data_dir, collection, "md")
@@ -156,7 +179,7 @@ def csv(
     collection: str | None = typer.Option(
         None,
         "--collection",
-        help="Filter by collection type (likes, bookmarks, tweets, reposts).",
+        help="Filter by collection type (likes, bookmarks, tweets, reposts, replies, posts).",
     ),
     folder: str | None = typer.Option(
         None,
@@ -176,6 +199,7 @@ def csv(
         get_all_tweets,
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
+        get_tweets_by_collections,
     )
 
     data_dir = get_data_dir()
@@ -185,6 +209,8 @@ def csv(
     tweets: list[dict[str, Any]]
     if folder and collection_type == "bookmark":
         tweets = get_tweets_by_bookmark_folder(db_path, folder)
+    elif isinstance(collection_type, list):
+        tweets = get_tweets_by_collections(db_path, collection_type)
     elif collection_type:
         tweets = get_tweets_by_collection(db_path, collection_type)
     else:
@@ -201,7 +227,7 @@ def html(
     collection: str | None = typer.Option(
         None,
         "--collection",
-        help="Filter by collection type (likes, bookmarks, tweets, reposts).",
+        help="Filter by collection type (likes, bookmarks, tweets, reposts, replies, posts).",
     ),
     folder: str | None = typer.Option(
         None,
@@ -220,6 +246,7 @@ def html(
         get_all_tweets,
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
+        get_tweets_by_collections,
         get_tweets_by_conversation_id,
         get_tweets_by_ids,
     )
@@ -231,6 +258,8 @@ def html(
     tweets: list[dict[str, Any]]
     if folder and collection_type == "bookmark":
         tweets = get_tweets_by_bookmark_folder(db_path, folder)
+    elif isinstance(collection_type, list):
+        tweets = get_tweets_by_collections(db_path, collection_type)
     elif collection_type:
         tweets = get_tweets_by_collection(db_path, collection_type)
     else:
@@ -261,11 +290,32 @@ def html(
 
     from tweethoarder.export.richtext import extract_richtext_tags
 
-    # Extract richtext_tags from raw_json for each tweet
+    def extract_retweeter_username(raw_json: str | None) -> str | None:
+        """Extract retweeter username from raw_json for retweets."""
+        if not raw_json:
+            return None
+        try:
+            raw = json.loads(raw_json)
+            # Check if this is a retweet
+            if not raw.get("legacy", {}).get("retweeted_status_result"):
+                return None
+            # The retweeter is the user in core.user_results
+            user_result = raw.get("core", {}).get("user_results", {}).get("result", {})
+            screen_name: str | None = user_result.get("legacy", {}).get(
+                "screen_name"
+            ) or user_result.get("core", {}).get("screen_name")
+            return screen_name
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    # Extract richtext_tags and retweeter_username from raw_json for each tweet
     for tweet in tweets:
         richtext_tags = extract_richtext_tags(tweet.get("raw_json"))
         if richtext_tags:
             tweet["richtext_tags"] = richtext_tags
+        retweeter = extract_retweeter_username(tweet.get("raw_json"))
+        if retweeter:
+            tweet["retweeter_username"] = retweeter
     for tweet in quoted_tweets:
         richtext_tags = extract_richtext_tags(tweet.get("raw_json"))
         if richtext_tags:
@@ -284,6 +334,7 @@ def html(
         "urls_json",
         "media_json",
         "is_retweet",
+        "retweeter_username",
         "quoted_tweet_id",
         "richtext_tags",
     }
@@ -549,7 +600,7 @@ def html(
         "    const threadTweets = getThreadTweets(t);",
         "    const isThread = threadTweets.length > 1;",
         "    const dn = t.author_display_name || t.author_username;",
-        "    const dt = t.created_at ? t.created_at.slice(0, 10) : '';",
+        "    const dt = t.created_at ? t.created_at.slice(0, 16).replace('T', ' ') : '';",
         "    const url = `https://x.com/${t.author_username}/status/${t.id}`;",
         "    const av = isValidAvatarUrl(t.author_avatar_url)",
         '      ? `<img src="${t.author_avatar_url}" alt="" class="avatar">`',
@@ -563,7 +614,7 @@ def html(
         "      }).join('');",
         "      return `<article class='thread'>",
         "        ${av}",
-        "        <p><strong>\\U0001F9F5 Thread by ${escapeHtml(dn)}</strong> "
+        "        <p><strong>🧵 Thread by ${escapeHtml(dn)}</strong> "
         "@${escapeHtml(t.author_username)}</p>",
         "        ${threadHtml}",
         '        <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',
@@ -571,8 +622,9 @@ def html(
         "    }",
         "    const richTxt = applyRichtext(t.text, t.richtext_tags);",
         "    const txt = expandUrls(richTxt, t.urls_json);",
-        "    const rtHeader = t.is_retweet ? `<div class='retweet-header'>"
-        "\\U0001F501 Retweeted by @${escapeHtml(t.author_username)}</div>` : '';",
+        "    const rtHeader = (t.is_retweet && t.retweeter_username) ? "
+        "`<div class='retweet-header'>🔁 Retweeted by @${escapeHtml(t.retweeter_username)}"
+        "</div>` : '';",
         "    const qt = t.quoted_tweet_id ? TWEETS_MAP[t.quoted_tweet_id] : null;",
         "    const qtRichTxt = qt ? applyRichtext(qt.text, qt.richtext_tags) : '';",
         "    const qtText = qt ? expandUrls(qtRichTxt, qt.urls_json) : '';",
