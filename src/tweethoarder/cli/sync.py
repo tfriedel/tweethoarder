@@ -1,11 +1,22 @@
 """Sync commands for TweetHoarder CLI."""
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
 
 import httpx
 import typer
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 
 from tweethoarder.auth.cookies import resolve_cookies
 from tweethoarder.cli.thread import fetch_thread_async
@@ -22,6 +33,38 @@ from tweethoarder.query_ids.store import QueryIdStore, get_query_id_with_fallbac
 from tweethoarder.storage.checkpoint import SyncCheckpoint
 from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
 
+# Delay between thread fetches to avoid rate limiting (in seconds)
+# Twitter's TweetDetail endpoint allows ~50-100 requests per 15 minutes
+# 15 min = 900s, so ~10s between requests is safe
+# currently at 1sec, because for small batches it's okay.
+# TODO: We should optimize this later, with maybe some dynamic throttling.
+# We should benchmark this with a test account.
+THREAD_FETCH_DELAY = 1.0
+
+
+def create_sync_progress() -> Progress:
+    """Create a progress bar for sync operations."""
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TextColumn("ETA:"),
+        TimeRemainingColumn(),
+        transient=False,
+    )
+
+
+def needs_thread_fetch(tweet_data: dict[str, Any]) -> bool:
+    """Check if a tweet needs thread context fetched (is a reply or part of conversation)."""
+    if tweet_data.get("in_reply_to_tweet_id"):
+        return True
+    conv_id = tweet_data.get("conversation_id")
+    return conv_id is not None and conv_id != tweet_data.get("id")
+
+
 app = typer.Typer(
     name="sync",
     help="Sync Twitter/X data to local storage.",
@@ -34,6 +77,7 @@ async def sync_likes_async(
     with_threads: bool = False,
     thread_mode: str = "thread",
     store_raw: bool = False,
+    progress: Progress | None = None,
 ) -> dict[str, Any]:
     """Sync liked tweets from Twitter to local database.
 
@@ -47,6 +91,7 @@ async def sync_likes_async(
         with_threads: If True, fetch thread context for synced tweets.
         thread_mode: Mode for thread fetching ('thread' or 'conversation').
         store_raw: If True, store raw API response JSON in the database.
+        progress: Optional Rich progress bar for displaying sync progress.
 
     Returns:
         Dictionary with 'synced_count' key containing the number of
@@ -79,6 +124,11 @@ async def sync_likes_async(
     cursor: str | None = saved_checkpoint.cursor if saved_checkpoint else None
     last_tweet_id: str | None = None
     synced_tweet_ids: list[str] = []
+    tweets_needing_threads: list[str] = []
+
+    # Set up progress tracking
+    total = int(count) if count != float("inf") else None
+    sync_task = progress.add_task("Syncing likes", total=total) if progress else None
 
     async with httpx.AsyncClient(headers=headers) as http_client:
 
@@ -119,7 +169,11 @@ async def sync_likes_async(
                 add_to_collection(db_path, tweet_data["id"], "like", sort_index=sort_index)
                 last_tweet_id = tweet_data["id"]
                 synced_tweet_ids.append(tweet_data["id"])
+                if needs_thread_fetch(tweet_data):
+                    tweets_needing_threads.append(tweet_data["id"])
                 synced_count += 1
+                if progress and sync_task is not None:
+                    progress.update(sync_task, completed=synced_count)
 
             # Save checkpoint after each page for resume capability
             if cursor and last_tweet_id:
@@ -131,10 +185,20 @@ async def sync_likes_async(
     # Clear checkpoint on successful completion
     checkpoint.clear("like")
 
-    # Fetch threads for all synced tweets if enabled
-    if with_threads:
-        for tweet_id in synced_tweet_ids:
+    # Fetch threads only for tweets that are part of a conversation
+    if with_threads and tweets_needing_threads:
+        thread_task = (
+            progress.add_task("Fetching threads", total=len(tweets_needing_threads))
+            if progress
+            else None
+        )
+        for i, tweet_id in enumerate(tweets_needing_threads):
             await fetch_thread_async(db_path=db_path, tweet_id=tweet_id, mode=thread_mode)
+            if progress and thread_task is not None:
+                progress.update(thread_task, completed=i + 1)
+            # Add delay to avoid rate limiting
+            if i < len(tweets_needing_threads) - 1:
+                await asyncio.sleep(THREAD_FETCH_DELAY)
 
     return {"synced_count": synced_count}
 
@@ -150,21 +214,22 @@ def likes(
     store_raw: bool = typer.Option(False, "--store-raw", help="Store raw API response JSON."),
 ) -> None:
     """Sync liked tweets to local storage."""
-    import asyncio
-
     from tweethoarder.config import get_data_dir
 
     db_path = get_data_dir() / "tweethoarder.db"
     effective_count = float("inf") if all_likes else count
-    result = asyncio.run(
-        sync_likes_async(
-            db_path,
-            effective_count,
-            with_threads=with_threads,
-            thread_mode=thread_mode,
-            store_raw=store_raw,
+
+    with create_sync_progress() as progress:
+        result = asyncio.run(
+            sync_likes_async(
+                db_path,
+                effective_count,
+                with_threads=with_threads,
+                thread_mode=thread_mode,
+                store_raw=store_raw,
+                progress=progress,
+            )
         )
-    )
     typer.echo(f"Synced {result['synced_count']} likes.")
 
 
@@ -174,6 +239,7 @@ async def sync_bookmarks_async(
     with_threads: bool = False,
     thread_mode: str = "thread",
     store_raw: bool = False,
+    progress: Progress | None = None,
 ) -> dict[str, int]:
     """Sync bookmarks asynchronously."""
     from tweethoarder.client.timelines import (
@@ -203,6 +269,11 @@ async def sync_bookmarks_async(
     cursor: str | None = saved_checkpoint.cursor if saved_checkpoint else None
     last_tweet_id: str | None = None
     synced_tweet_ids: list[str] = []
+    tweets_needing_threads: list[str] = []
+
+    # Set up progress tracking
+    total = int(count) if count != float("inf") else None
+    sync_task = progress.add_task("Syncing bookmarks", total=total) if progress else None
 
     async with httpx.AsyncClient(headers=headers) as http_client:
 
@@ -239,7 +310,11 @@ async def sync_bookmarks_async(
                     add_to_collection(db_path, tweet_data["id"], "bookmark")
                     last_tweet_id = tweet_data["id"]
                     synced_tweet_ids.append(tweet_data["id"])
+                    if needs_thread_fetch(tweet_data):
+                        tweets_needing_threads.append(tweet_data["id"])
                     synced_count += 1
+                    if progress and sync_task is not None:
+                        progress.update(sync_task, completed=synced_count)
 
             # Save checkpoint after each page for resume capability
             if cursor and last_tweet_id:
@@ -251,10 +326,20 @@ async def sync_bookmarks_async(
     # Clear checkpoint on successful completion
     checkpoint.clear("bookmark")
 
-    # Fetch threads for all synced tweets if enabled
-    if with_threads:
-        for tweet_id in synced_tweet_ids:
+    # Fetch threads only for tweets that are part of a conversation
+    if with_threads and tweets_needing_threads:
+        thread_task = (
+            progress.add_task("Fetching threads", total=len(tweets_needing_threads))
+            if progress
+            else None
+        )
+        for i, tweet_id in enumerate(tweets_needing_threads):
             await fetch_thread_async(db_path=db_path, tweet_id=tweet_id, mode=thread_mode)
+            if progress and thread_task is not None:
+                progress.update(thread_task, completed=i + 1)
+            # Add delay to avoid rate limiting
+            if i < len(tweets_needing_threads) - 1:
+                await asyncio.sleep(THREAD_FETCH_DELAY)
 
     return {"synced_count": synced_count}
 
@@ -270,21 +355,22 @@ def bookmarks(
     store_raw: bool = typer.Option(False, "--store-raw", help="Store raw API response JSON."),
 ) -> None:
     """Sync bookmarked tweets to local storage."""
-    import asyncio
-
     from tweethoarder.config import get_data_dir
 
     db_path = get_data_dir() / "tweethoarder.db"
     effective_count = float("inf") if all_bookmarks else count
-    result = asyncio.run(
-        sync_bookmarks_async(
-            db_path,
-            effective_count,
-            with_threads=with_threads,
-            thread_mode=thread_mode,
-            store_raw=store_raw,
+
+    with create_sync_progress() as progress:
+        result = asyncio.run(
+            sync_bookmarks_async(
+                db_path,
+                effective_count,
+                with_threads=with_threads,
+                thread_mode=thread_mode,
+                store_raw=store_raw,
+                progress=progress,
+            )
         )
-    )
     typer.echo(f"Synced {result['synced_count']} bookmarks.")
 
 
