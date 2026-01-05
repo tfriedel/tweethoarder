@@ -725,10 +725,12 @@ def test_html_export_quoted_tweet_validates_fields(tmp_path: Path) -> None:
         patch("tweethoarder.config.get_data_dir") as mock_data_dir,
         patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
         patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+        patch("tweethoarder.storage.database.get_tweets_by_ids") as mock_get_by_ids,
     ):
         mock_data_dir.return_value = tmp_path
         mock_get_tweets.return_value = mock_tweets
         mock_get_thread.return_value = []
+        mock_get_by_ids.return_value = []  # No quoted tweets available
 
         result = runner.invoke(
             app,

@@ -427,6 +427,9 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     entities = legacy.get("entities", {})
     extended_entities = legacy.get("extended_entities", {})
     retweet_result = legacy.get("retweeted_status_result", {}).get("result", {})
+    # Quote tweets: try new GraphQL API format first, fallback to legacy
+    quoted_result = raw_tweet.get("quoted_status_result", {}).get("result", {})
+    quoted_tweet_id = quoted_result.get("rest_id") or legacy.get("quoted_status_id_str")
 
     urls = entities.get("urls")
     media = extended_entities.get("media")
@@ -445,7 +448,7 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
         "conversation_id": legacy.get("conversation_id_str"),
         "in_reply_to_tweet_id": legacy.get("in_reply_to_status_id_str"),
         "in_reply_to_user_id": legacy.get("in_reply_to_user_id_str"),
-        "quoted_tweet_id": legacy.get("quoted_status_id_str"),
+        "quoted_tweet_id": quoted_tweet_id,
         "is_retweet": "retweeted_status_result" in legacy,
         "retweeted_tweet_id": retweet_result.get("rest_id"),
         "urls_json": json.dumps(urls) if urls else None,
@@ -457,3 +460,18 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
         "like_count": legacy.get("favorite_count", 0),
         "quote_count": legacy.get("quote_count", 0),
     }
+
+
+def extract_quoted_tweet(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract quoted tweet data from a raw tweet if present.
+
+    Args:
+        raw_tweet: Raw tweet dictionary from the Twitter API response.
+
+    Returns:
+        Dictionary with normalized quoted tweet data, or None if no quoted tweet.
+    """
+    quoted_result = raw_tweet.get("quoted_status_result", {}).get("result", {})
+    if not quoted_result or not quoted_result.get("rest_id"):
+        return None
+    return extract_tweet_data(quoted_result)

@@ -154,10 +154,10 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
             """
             INSERT INTO tweets (
                 id, text, author_id, author_username, author_display_name,
-                author_avatar_url, created_at, conversation_id, reply_count,
-                retweet_count, like_count, quote_count, urls_json, media_json, raw_json,
-                first_seen_at, last_updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                author_avatar_url, created_at, conversation_id, quoted_tweet_id,
+                reply_count, retweet_count, like_count, quote_count,
+                urls_json, media_json, raw_json, first_seen_at, last_updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 text = excluded.text,
                 author_id = excluded.author_id,
@@ -166,6 +166,7 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
                 author_avatar_url = excluded.author_avatar_url,
                 created_at = excluded.created_at,
                 conversation_id = excluded.conversation_id,
+                quoted_tweet_id = COALESCE(excluded.quoted_tweet_id, tweets.quoted_tweet_id),
                 reply_count = excluded.reply_count,
                 retweet_count = excluded.retweet_count,
                 like_count = excluded.like_count,
@@ -184,6 +185,7 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
                 tweet_data.get("author_avatar_url"),
                 tweet_data["created_at"],
                 tweet_data.get("conversation_id"),
+                tweet_data.get("quoted_tweet_id"),
                 tweet_data.get("reply_count", 0),
                 tweet_data.get("retweet_count", 0),
                 tweet_data.get("like_count", 0),
@@ -312,5 +314,30 @@ def get_tweets_by_conversation_id(db_path: Path, conversation_id: str) -> list[d
             ORDER BY created_at ASC
             """,
             (conversation_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_tweets_by_ids(db_path: Path, tweet_ids: list[str]) -> list[dict[str, Any]]:
+    """Get tweets by their IDs.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        tweet_ids: List of tweet IDs to fetch.
+
+    Returns:
+        List of tweet dictionaries for tweets that exist in the database.
+    """
+    if not tweet_ids:
+        return []
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        placeholders = ",".join("?" * len(tweet_ids))
+        cursor = conn.execute(
+            f"""
+            SELECT * FROM tweets
+            WHERE id IN ({placeholders})
+            """,
+            tweet_ids,
         )
         return [dict(row) for row in cursor.fetchall()]

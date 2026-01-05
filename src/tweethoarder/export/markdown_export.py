@@ -35,10 +35,32 @@ def _expand_urls(text: str, urls_json: str | None) -> str:
     return text
 
 
+def _format_quoted_tweet(quoted_tweet: dict[str, Any]) -> list[str]:
+    """Format a quoted tweet as a blockquote."""
+    lines: list[str] = []
+    qt_username = quoted_tweet.get("author_username", "unknown")
+    qt_display = quoted_tweet.get("author_display_name") or qt_username
+    qt_text = _linkify_mentions(
+        _expand_urls(quoted_tweet.get("text", ""), quoted_tweet.get("urls_json"))
+    )
+    qt_id = quoted_tweet.get("id", "")
+
+    lines.append("> **Quote:**")
+    lines.append(f"> **{qt_display}** [@{qt_username}](https://x.com/{qt_username})")
+    lines.append(">")
+    # Indent each line of the quoted tweet text
+    for text_line in qt_text.split("\n"):
+        lines.append(f"> {text_line}")
+    lines.append(">")
+    lines.append(f"> [View quoted tweet](https://x.com/{qt_username}/status/{qt_id})")
+    return lines
+
+
 def export_tweets_to_markdown(
     tweets: list[dict[str, Any]],
     collection: str | None = None,
     thread_context: dict[str, list[dict[str, Any]]] | None = None,
+    quoted_tweets: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     """Export tweets to Markdown format."""
     lines: list[str] = []
@@ -98,6 +120,15 @@ def export_tweets_to_markdown(
             text = _linkify_mentions(_expand_urls(tweet.get("text", ""), tweet.get("urls_json")))
             lines.append(text)
             lines.append("")
+
+        # Render quoted tweet if present
+        quoted_tweet_id = tweet.get("quoted_tweet_id")
+        if quoted_tweet_id and quoted_tweets:
+            quoted_tweet = quoted_tweets.get(quoted_tweet_id)
+            if quoted_tweet:
+                lines.extend(_format_quoted_tweet(quoted_tweet))
+                lines.append("")
+
         tweet_id = tweet.get("id", "")
         lines.append(f"[View on Twitter](https://twitter.com/{username}/status/{tweet_id})")
 
