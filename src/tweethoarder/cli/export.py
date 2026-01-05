@@ -327,12 +327,18 @@ def html(
         "  return div.innerHTML;",
         "}",
         "function expandUrls(text, urlsJson) {",
-        "  if (!urlsJson) return text;",
-        "  try {",
-        "    const urls = JSON.parse(urlsJson);",
-        "    urls.forEach(u => { text = text.replace(u.url, u.expanded_url); });",
-        "  } catch (e) { console.warn('Failed to expand URLs:', e.message); }",
+        "  if (urlsJson) {",
+        "    try {",
+        "      const urls = JSON.parse(urlsJson);",
+        "      urls.forEach(u => { text = text.replace(u.url, u.expanded_url); });",
+        "    } catch (e) { console.warn('Failed to expand URLs:', e.message); }",
+        "  }",
+        "  text = text.replace(/\\s*https:\\/\\/t\\.co\\/\\w+/g, '');",
         "  return text;",
+        "}",
+        "function linkifyUrls(text) {",
+        "  return text.replace(/(https?:\\/\\/[^\\s<]+)/g, "
+        '\'<a href="$1" target="_blank">$1</a>\');',
         "}",
         "function isValidMediaUrl(url) {",
         "  return url && (url.startsWith('https://pbs.twimg.com/') "
@@ -400,7 +406,7 @@ def html(
         "      const threadHtml = threadTweets.map(th => {",
         "        const txt = expandUrls(th.text, th.urls_json);",
         "        const star = th.id === t.id ? '\\u2B50 ' : '';",
-        "        return `<p>${star}${escapeHtml(txt)}</p>`;",
+        "        return `<p>${star}${linkifyUrls(escapeHtml(txt))}</p>`;",
         "      }).join('');",
         "      return `<article class='thread'>",
         "        ${av}",
@@ -414,16 +420,17 @@ def html(
         "    const rtHeader = t.is_retweet ? `<div class='retweet-header'>"
         "\\U0001F501 Retweeted by @${escapeHtml(t.author_username)}</div>` : '';",
         "    const qt = t.quoted_tweet_id ? TWEETS_MAP[t.quoted_tweet_id] : null;",
+        "    const qtText = qt ? expandUrls(qt.text, qt.urls_json) : '';",
         "    const qtHtml = (qt && qt.author_username && qt.text) ? `<div class='quoted-tweet'>"
         "<p><strong>${escapeHtml(qt.author_display_name || qt.author_username)}</strong> "
         "@${escapeHtml(qt.author_username)}</p>"
-        "<p>${escapeHtml(qt.text)}</p></div>` : "
+        "<p>${linkifyUrls(escapeHtml(qtText))}</p></div>` : "
         "(t.quoted_tweet_id ? '<div class=\"quoted-tweet\">Quoted tweet unavailable</div>' : '');",
         "    return `<article>",
         "      ${rtHeader}",
         "      ${av}",
         "      <p><strong>${escapeHtml(dn)}</strong> @${escapeHtml(t.author_username)}</p>",
-        "      <p>${escapeHtml(txt)}</p>",
+        "      <p>${linkifyUrls(escapeHtml(txt))}</p>",
         "      ${renderMedia(t.media_json)}",
         "      ${qtHtml}",
         '      <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',

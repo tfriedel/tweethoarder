@@ -95,6 +95,29 @@ def test_export_expands_tco_urls() -> None:
     assert "https://t.co/abc123" not in result
 
 
+def test_export_strips_media_tco_urls() -> None:
+    """Export should strip t.co URLs not in urls_json (media URLs)."""
+    import json
+
+    from tweethoarder.export.markdown_export import export_tweets_to_markdown
+
+    tweet = {
+        "id": "123",
+        "text": "Check this https://t.co/link and image https://t.co/media123",
+        "author_username": "user",
+        "author_id": "456",
+        "created_at": "2025-01-01T12:00:00Z",
+        "urls_json": json.dumps(
+            [{"url": "https://t.co/link", "expanded_url": "https://example.com"}]
+        ),
+    }
+
+    result = export_tweets_to_markdown([tweet], collection="likes")
+
+    assert "https://example.com" in result
+    assert "https://t.co/media123" not in result
+
+
 def test_export_groups_thread_tweets_when_context_provided(make_tweet: Any) -> None:
     """Export groups tweets with thread context, marking the liked tweet."""
     # The liked tweet (part of a thread)

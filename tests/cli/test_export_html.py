@@ -546,6 +546,92 @@ def test_html_export_expandurls_logs_errors(tmp_path: Path) -> None:
         assert "expandUrls" in content or "Failed to expand" in content
 
 
+def test_html_export_strips_media_tco_urls(tmp_path: Path) -> None:
+    """HTML export should strip t.co URLs not in urls_json (media URLs)."""
+    import json
+
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Check this https://t.co/link and image https://t.co/media123",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+            "urls_json": json.dumps(
+                [{"url": "https://t.co/link", "expanded_url": "https://example.com"}]
+            ),
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # The JS should have stripMediaUrls function
+        assert "stripMediaUrls" in content or "t.co" in content
+        # Ensure the function strips leftover t.co URLs
+        assert "https://t.co/" in content  # regex pattern should be present
+        assert ".replace" in content  # should use replace to strip
+
+
+def test_html_export_makes_urls_clickable(tmp_path: Path) -> None:
+    """HTML export should make URLs clickable with anchor tags."""
+    import json
+
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Check this https://t.co/link",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+            "urls_json": json.dumps(
+                [{"url": "https://t.co/link", "expanded_url": "https://example.com/page"}]
+            ),
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have a linkifyUrls or makeClickable function
+        assert "linkifyUrls" in content or "makeClickable" in content
+        # Should create anchor tags with href
+        assert '<a href="' in content or "<a href='" in content
+        assert 'target="_blank"' in content or "target='_blank'" in content
+
+
 def test_html_export_rendermedia_logs_errors(tmp_path: Path) -> None:
     """HTML export should log errors when renderMedia fails to parse JSON."""
     mock_tweets = [

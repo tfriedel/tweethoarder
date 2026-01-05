@@ -1,6 +1,7 @@
 """Markdown export functionality for TweetHoarder."""
 
 import json
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,18 +14,19 @@ COLLECTION_TITLES = {
 
 
 def _expand_urls(text: str, urls_json: str | None) -> str:
-    """Expand t.co URLs to their full URLs."""
-    if not urls_json:
-        return text
-    try:
-        urls = json.loads(urls_json)
-        for url_info in urls:
-            short_url = url_info.get("url", "")
-            expanded_url = url_info.get("expanded_url", "")
-            if short_url and expanded_url:
-                text = text.replace(short_url, expanded_url)
-    except (json.JSONDecodeError, TypeError):
-        pass
+    """Expand t.co URLs to their full URLs and strip media t.co URLs."""
+    if urls_json:
+        try:
+            urls = json.loads(urls_json)
+            for url_info in urls:
+                short_url = url_info.get("url", "")
+                expanded_url = url_info.get("expanded_url", "")
+                if short_url and expanded_url:
+                    text = text.replace(short_url, expanded_url)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    # Strip remaining t.co URLs (media URLs not in urls_json)
+    text = re.sub(r"\s*https://t\.co/\w+", "", text)
     return text
 
 
