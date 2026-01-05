@@ -211,7 +211,9 @@ def likes(
     thread_mode: str = typer.Option(
         "thread", "--thread-mode", help="Thread mode: thread (author only) or conversation."
     ),
-    store_raw: bool = typer.Option(False, "--store-raw", help="Store raw API response JSON."),
+    store_raw: bool = typer.Option(
+        True, "--store-raw/--no-store-raw", help="Store raw API response JSON."
+    ),
 ) -> None:
     """Sync liked tweets to local storage."""
     from tweethoarder.config import get_data_dir
@@ -352,7 +354,9 @@ def bookmarks(
     thread_mode: str = typer.Option(
         "thread", "--thread-mode", help="Thread mode: thread (author only) or conversation."
     ),
-    store_raw: bool = typer.Option(False, "--store-raw", help="Store raw API response JSON."),
+    store_raw: bool = typer.Option(
+        True, "--store-raw/--no-store-raw", help="Store raw API response JSON."
+    ),
 ) -> None:
     """Sync bookmarked tweets to local storage."""
     from tweethoarder.config import get_data_dir
@@ -456,7 +460,9 @@ def tweets(
     thread_mode: str = typer.Option(
         "thread", "--thread-mode", help="Thread mode: thread (author only) or conversation."
     ),
-    store_raw: bool = typer.Option(False, "--store-raw", help="Store raw API response JSON."),
+    store_raw: bool = typer.Option(
+        True, "--store-raw/--no-store-raw", help="Store raw API response JSON."
+    ),
 ) -> None:
     """Sync user's own tweets to local storage."""
     import asyncio
@@ -562,7 +568,9 @@ def reposts(
     thread_mode: str = typer.Option(
         "thread", "--thread-mode", help="Thread mode: thread (author only) or conversation."
     ),
-    store_raw: bool = typer.Option(False, "--store-raw", help="Store raw API response JSON."),
+    store_raw: bool = typer.Option(
+        True, "--store-raw/--no-store-raw", help="Store raw API response JSON."
+    ),
 ) -> None:
     """Sync user's reposts (retweets) to local storage."""
     import asyncio
