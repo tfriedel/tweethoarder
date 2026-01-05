@@ -470,21 +470,25 @@ async def test_sync_likes_async_resumes_from_checkpoint(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_sync_likes_async_fetches_threads_for_all_synced_tweets(tmp_path: Path) -> None:
-    """sync_likes_async should fetch threads for ALL synced tweets, not just the last one."""
+async def test_sync_likes_async_fetches_threads_for_conversation_tweets(tmp_path: Path) -> None:
+    """sync_likes_async should fetch threads only for tweets that are part of conversations."""
     from unittest.mock import AsyncMock, MagicMock, patch
 
     from tweethoarder.cli.sync import sync_likes_async
 
     db_path = tmp_path / "test.db"
-    # Create response with 3 tweets
-    mock_response = _make_likes_response(
-        [
-            _make_tweet_entry("111", "First"),
-            _make_tweet_entry("222", "Second"),
-            _make_tweet_entry("333", "Third"),
-        ]
-    )
+    # Create response with 3 tweets - 2 are replies (need threads), 1 is standalone
+    reply_entry_1 = _make_tweet_entry("111", "First reply")
+    reply_entry_1["content"]["itemContent"]["tweet_results"]["result"]["legacy"][
+        "in_reply_to_status_id_str"
+    ] = "000"
+    reply_entry_2 = _make_tweet_entry("222", "Second reply")
+    reply_entry_2["content"]["itemContent"]["tweet_results"]["result"]["legacy"][
+        "in_reply_to_status_id_str"
+    ] = "000"
+    standalone_entry = _make_tweet_entry("333", "Standalone tweet")
+
+    mock_response = _make_likes_response([reply_entry_1, reply_entry_2, standalone_entry])
 
     mock_http_response = MagicMock()
     mock_http_response.json.return_value = mock_response
@@ -501,11 +505,11 @@ async def test_sync_likes_async_fetches_threads_for_all_synced_tweets(tmp_path: 
 
                 await sync_likes_async(db_path=db_path, count=10, with_threads=True)
 
-                # Should be called 3 times - once for each synced tweet
-                assert mock_fetch_thread.call_count == 3
-                # Verify each tweet ID was passed
+                # Should be called 2 times - only for reply tweets, not standalone
+                assert mock_fetch_thread.call_count == 2
+                # Verify only reply tweet IDs were passed
                 call_tweet_ids = [call[1]["tweet_id"] for call in mock_fetch_thread.call_args_list]
-                assert set(call_tweet_ids) == {"111", "222", "333"}
+                assert set(call_tweet_ids) == {"111", "222"}
 
 
 def test_sync_likes_async_accepts_store_raw_parameter() -> None:
