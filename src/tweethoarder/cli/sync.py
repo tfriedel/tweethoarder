@@ -32,6 +32,7 @@ from tweethoarder.query_ids.scraper import refresh_query_ids
 from tweethoarder.query_ids.store import QueryIdStore, get_query_id_with_fallback
 from tweethoarder.storage.checkpoint import SyncCheckpoint
 from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+from tweethoarder.sync.sort_index import SortIndexGenerator
 
 # Delay between thread fetches to avoid rate limiting (in seconds)
 # Twitter's TweetDetail endpoint allows ~50-100 requests per 15 minutes
@@ -126,6 +127,9 @@ async def sync_likes_async(
     synced_tweet_ids: list[str] = []
     tweets_needing_threads: list[str] = []
 
+    # Initialize sort index generator (uses checkpoint or derives from existing data)
+    sort_gen = SortIndexGenerator.from_checkpoint_or_db(checkpoint, "like", db_path)
+
     # Set up progress tracking
     total = int(count) if count != float("inf") else None
     sync_task = progress.add_task("Syncing likes", total=total) if progress else None
@@ -155,7 +159,7 @@ async def sync_likes_async(
                 if synced_count >= count:
                     break
                 raw_tweet = entry["tweet"]
-                sort_index = entry.get("sort_index")
+                sort_index = sort_gen.next()
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data is None:
                     continue
@@ -177,7 +181,12 @@ async def sync_likes_async(
 
             # Save checkpoint after each page for resume capability
             if cursor and last_tweet_id:
-                checkpoint.save("like", cursor=cursor, last_tweet_id=last_tweet_id)
+                checkpoint.save(
+                    "like",
+                    cursor=cursor,
+                    last_tweet_id=last_tweet_id,
+                    sort_index_counter=sort_gen.current,
+                )
 
             if not cursor:
                 break
@@ -273,6 +282,9 @@ async def sync_bookmarks_async(
     synced_tweet_ids: list[str] = []
     tweets_needing_threads: list[str] = []
 
+    # Initialize sort index generator (uses checkpoint or derives from existing data)
+    sort_gen = SortIndexGenerator.from_checkpoint_or_db(checkpoint, "bookmark", db_path)
+
     # Set up progress tracking
     total = int(count) if count != float("inf") else None
     sync_task = progress.add_task("Syncing bookmarks", total=total) if progress else None
@@ -301,7 +313,7 @@ async def sync_bookmarks_async(
                 if synced_count >= count:
                     break
                 raw_tweet = entry["tweet"]
-                sort_index = entry.get("sort_index")
+                sort_index = sort_gen.next()
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data:
                     if store_raw:
@@ -322,7 +334,12 @@ async def sync_bookmarks_async(
 
             # Save checkpoint after each page for resume capability
             if cursor and last_tweet_id:
-                checkpoint.save("bookmark", cursor=cursor, last_tweet_id=last_tweet_id)
+                checkpoint.save(
+                    "bookmark",
+                    cursor=cursor,
+                    last_tweet_id=last_tweet_id,
+                    sort_index_counter=sort_gen.current,
+                )
 
             if not cursor:
                 break
@@ -417,8 +434,16 @@ async def sync_tweets_async(
 
     synced_count = 0
     headers = client.get_base_headers()
-    cursor: str | None = None
     synced_tweet_ids: list[str] = []
+
+    # Load checkpoint for resume capability
+    checkpoint = SyncCheckpoint(db_path)
+    saved_checkpoint = checkpoint.load("tweet")
+    cursor: str | None = saved_checkpoint.cursor if saved_checkpoint else None
+    last_tweet_id: str | None = None
+
+    # Initialize sort index generator (uses checkpoint or derives from existing data)
+    sort_gen = SortIndexGenerator.from_checkpoint_or_db(checkpoint, "tweet", db_path)
 
     # Set up progress tracking
     total = int(count) if count != float("inf") else None
@@ -444,7 +469,7 @@ async def sync_tweets_async(
                 # Skip replies - they should be synced using sync_replies_async
                 if is_reply(raw_tweet):
                     continue
-                sort_index = entry.get("sort_index")
+                sort_index = sort_gen.next()
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data:
                     if store_raw:
@@ -455,13 +480,26 @@ async def sync_tweets_async(
                     if quoted_tweet_data:
                         save_tweet(db_path, quoted_tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "tweet", sort_index=sort_index)
+                    last_tweet_id = tweet_data["id"]
                     synced_tweet_ids.append(tweet_data["id"])
                     synced_count += 1
                     if progress and sync_task is not None:
                         progress.update(sync_task, completed=synced_count)
 
+            # Save checkpoint after each page for resume capability
+            if cursor and last_tweet_id:
+                checkpoint.save(
+                    "tweet",
+                    cursor=cursor,
+                    last_tweet_id=last_tweet_id,
+                    sort_index_counter=sort_gen.current,
+                )
+
             if not cursor:
                 break
+
+    # Clear checkpoint on successful completion
+    checkpoint.clear("tweet")
 
     # Fetch threads for all synced tweets if enabled
     if with_threads:
@@ -535,8 +573,16 @@ async def sync_reposts_async(
 
     synced_count = 0
     headers = client.get_base_headers()
-    cursor: str | None = None
     synced_tweet_ids: list[str] = []
+
+    # Load checkpoint for resume capability
+    checkpoint = SyncCheckpoint(db_path)
+    saved_checkpoint = checkpoint.load("repost")
+    cursor: str | None = saved_checkpoint.cursor if saved_checkpoint else None
+    last_tweet_id: str | None = None
+
+    # Initialize sort index generator (uses checkpoint or derives from existing data)
+    sort_gen = SortIndexGenerator.from_checkpoint_or_db(checkpoint, "repost", db_path)
 
     # Set up progress tracking
     total = int(count) if count != float("inf") else None
@@ -559,9 +605,9 @@ async def sync_reposts_async(
                 if synced_count >= count:
                     break
                 raw_tweet = entry["tweet"]
-                sort_index = entry.get("sort_index")
                 if not is_repost(raw_tweet):
                     continue
+                sort_index = sort_gen.next()
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data:
                     if store_raw:
@@ -572,13 +618,26 @@ async def sync_reposts_async(
                     if quoted_tweet_data:
                         save_tweet(db_path, quoted_tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "repost", sort_index=sort_index)
+                    last_tweet_id = tweet_data["id"]
                     synced_tweet_ids.append(tweet_data["id"])
                     synced_count += 1
                     if progress and sync_task is not None:
                         progress.update(sync_task, completed=synced_count)
 
+            # Save checkpoint after each page for resume capability
+            if cursor and last_tweet_id:
+                checkpoint.save(
+                    "repost",
+                    cursor=cursor,
+                    last_tweet_id=last_tweet_id,
+                    sort_index_counter=sort_gen.current,
+                )
+
             if not cursor:
                 break
+
+    # Clear checkpoint on successful completion
+    checkpoint.clear("repost")
 
     # Fetch threads for all synced tweets if enabled
     if with_threads:
@@ -660,9 +719,17 @@ async def sync_replies_async(
 
     synced_count = 0
     headers = client.get_base_headers()
-    cursor: str | None = None
     synced_tweet_ids: list[str] = []
     parent_tweet_ids: set[str] = set()
+
+    # Load checkpoint for resume capability
+    checkpoint = SyncCheckpoint(db_path)
+    saved_checkpoint = checkpoint.load("reply")
+    cursor: str | None = saved_checkpoint.cursor if saved_checkpoint else None
+    last_tweet_id: str | None = None
+
+    # Initialize sort index generator (uses checkpoint or derives from existing data)
+    sort_gen = SortIndexGenerator.from_checkpoint_or_db(checkpoint, "reply", db_path)
 
     # Set up progress tracking
     total = int(count) if count != float("inf") else None
@@ -685,10 +752,10 @@ async def sync_replies_async(
                 if synced_count >= count:
                     break
                 raw_tweet = entry["tweet"]
-                sort_index = entry.get("sort_index")
                 # Only sync replies
                 if not is_reply(raw_tweet):
                     continue
+                sort_index = sort_gen.next()
                 tweet_data = extract_tweet_data(raw_tweet)
                 if tweet_data:
                     if store_raw:
@@ -699,6 +766,7 @@ async def sync_replies_async(
                     if quoted_tweet_data:
                         save_tweet(db_path, quoted_tweet_data)
                     add_to_collection(db_path, tweet_data["id"], "reply", sort_index=sort_index)
+                    last_tweet_id = tweet_data["id"]
                     synced_tweet_ids.append(tweet_data["id"])
                     # Collect parent tweet ID for later fetching
                     parent_id = tweet_data.get("in_reply_to_tweet_id")
@@ -707,6 +775,15 @@ async def sync_replies_async(
                     synced_count += 1
                     if progress and sync_task is not None:
                         progress.update(sync_task, completed=synced_count)
+
+            # Save checkpoint after each page for resume capability
+            if cursor and last_tweet_id:
+                checkpoint.save(
+                    "reply",
+                    cursor=cursor,
+                    last_tweet_id=last_tweet_id,
+                    sort_index_counter=sort_gen.current,
+                )
 
             if not cursor:
                 break
@@ -730,6 +807,9 @@ async def sync_replies_async(
             except httpx.HTTPStatusError:
                 # Parent tweet may be deleted or unavailable
                 pass
+
+    # Clear checkpoint on successful completion
+    checkpoint.clear("reply")
 
     # Fetch threads for all synced tweets if enabled
     if with_threads:
@@ -809,7 +889,17 @@ async def sync_posts_async(
     tweets_count = 0
     reposts_count = 0
     headers = client.get_base_headers()
-    cursor: str | None = None
+
+    # Load checkpoint for resume capability (using "posts" as combined checkpoint)
+    checkpoint = SyncCheckpoint(db_path)
+    saved_checkpoint = checkpoint.load("posts")
+    cursor: str | None = saved_checkpoint.cursor if saved_checkpoint else None
+    last_tweet_id: str | None = None
+
+    # Initialize separate sort index generators for tweets and reposts
+    # This maintains correct ordering within each collection type
+    sort_gen_tweet = SortIndexGenerator.from_checkpoint_or_db(checkpoint, "tweet", db_path)
+    sort_gen_repost = SortIndexGenerator.from_checkpoint_or_db(checkpoint, "repost", db_path)
 
     # Set up progress tracking
     total = int(count) if count != float("inf") else None
@@ -832,7 +922,6 @@ async def sync_posts_async(
                 if (tweets_count + reposts_count) >= count:
                     break
                 raw_tweet = entry["tweet"]
-                sort_index = entry.get("sort_index")
 
                 # Skip replies - they're not part of posts
                 if is_reply(raw_tweet):
@@ -850,19 +939,34 @@ async def sync_posts_async(
 
                     # Classify as tweet or repost
                     if is_repost(raw_tweet):
+                        sort_index = sort_gen_repost.next()
                         add_to_collection(
                             db_path, tweet_data["id"], "repost", sort_index=sort_index
                         )
                         reposts_count += 1
                     else:
+                        sort_index = sort_gen_tweet.next()
                         add_to_collection(db_path, tweet_data["id"], "tweet", sort_index=sort_index)
                         tweets_count += 1
+
+                    last_tweet_id = tweet_data["id"]
 
                     if progress and sync_task is not None:
                         progress.update(sync_task, completed=tweets_count + reposts_count)
 
+            # Save checkpoint after each page for resume capability
+            if cursor and last_tweet_id:
+                checkpoint.save(
+                    "posts",
+                    cursor=cursor,
+                    last_tweet_id=last_tweet_id,
+                )
+
             if not cursor:
                 break
+
+    # Clear checkpoint on successful completion
+    checkpoint.clear("posts")
 
     return {"tweets_count": tweets_count, "reposts_count": reposts_count}
 
