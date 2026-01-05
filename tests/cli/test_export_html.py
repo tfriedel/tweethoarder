@@ -826,6 +826,71 @@ def test_html_export_preserves_newlines(tmp_path: Path) -> None:
         )
 
 
+def test_html_export_separates_main_and_quoted_tweets(tmp_path: Path) -> None:
+    """HTML export should only render main collection tweets, not quoted tweets.
+
+    Quoted tweets should be available in TWEETS_MAP for lookup but not in the
+    main TWEETS array that gets rendered.
+    """
+    import json as json_lib
+
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Check out this tweet!",
+            "author_id": "user1",
+            "author_username": "quoter",
+            "created_at": "2025-01-01T12:00:00Z",
+            "quoted_tweet_id": "2",
+        },
+    ]
+    quoted_tweets = [
+        {
+            "id": "2",
+            "text": "Original quoted tweet",
+            "author_id": "user2",
+            "author_username": "original_author",
+            "created_at": "2025-01-01T11:00:00Z",
+        },
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+        patch("tweethoarder.storage.database.get_tweets_by_ids") as mock_get_by_ids,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+        mock_get_by_ids.return_value = quoted_tweets
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Parse the TWEETS array from the HTML
+        start = content.find("const TWEETS = [")
+        end = content.find("];", start) + 1
+        tweets_json = content[start + 14 : end]
+        tweets_arr = json_lib.loads(tweets_json)
+
+        # TWEETS array should only contain main tweets (1), not quoted tweets
+        assert len(tweets_arr) == 1
+        assert tweets_arr[0]["id"] == "1"
+
+        # TWEETS_MAP should contain both main and quoted tweets for lookup
+        assert "TWEETS_MAP" in content
+        # The quoted tweet should be available for lookup
+        assert "Original quoted tweet" in content
+
+
 def test_html_export_applies_richtext_formatting(tmp_path: Path) -> None:
     """HTML export should apply bold/italic formatting from richtext_tags."""
     import json

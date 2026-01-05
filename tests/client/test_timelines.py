@@ -83,8 +83,8 @@ async def test_fetch_bookmarks_page_returns_dict() -> None:
     assert "data" in result
 
 
-def test_parse_bookmarks_response_extracts_tweets() -> None:
-    """parse_bookmarks_response should extract tweet entries from API response."""
+def test_parse_bookmarks_response_extracts_tweets_with_sort_index() -> None:
+    """parse_bookmarks_response should extract tweet entries with sort_index from API response."""
     from tweethoarder.client.timelines import parse_bookmarks_response
 
     response = {
@@ -97,6 +97,7 @@ def test_parse_bookmarks_response_extracts_tweets() -> None:
                             "entries": [
                                 {
                                     "entryId": "tweet-123",
+                                    "sortIndex": "1234567890",
                                     "content": {
                                         "entryType": "TimelineTimelineItem",
                                         "itemContent": {
@@ -117,10 +118,11 @@ def test_parse_bookmarks_response_extracts_tweets() -> None:
         }
     }
 
-    tweets, _cursor = parse_bookmarks_response(response)
+    entries, _cursor = parse_bookmarks_response(response)
 
-    assert len(tweets) == 1
-    assert tweets[0]["rest_id"] == "123"
+    assert len(entries) == 1
+    assert entries[0]["tweet"]["rest_id"] == "123"
+    assert entries[0]["sort_index"] == "1234567890"
 
 
 def test_fetch_bookmarks_page_accepts_cursor_param() -> None:
