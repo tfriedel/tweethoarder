@@ -13,6 +13,7 @@ from tweethoarder.client.features import (
     build_bookmarks_features,
     build_likes_features,
     build_tweet_detail_features,
+    build_user_tweets_features,
 )
 from tweethoarder.query_ids.constants import TWITTER_API_BASE
 
@@ -134,11 +135,66 @@ def build_bookmarks_url(query_id: str, cursor: str | None = None) -> str:
 
 def build_user_tweets_url(query_id: str, user_id: str, cursor: str | None = None) -> str:
     """Build URL for fetching user tweets from Twitter GraphQL API."""
-    variables: dict[str, str] = {"userId": user_id}
+    variables: dict[str, str | int | bool] = {
+        "userId": user_id,
+        "count": 20,
+        "includePromotedContent": True,
+        "withQuickPromoteEligibilityTweetFields": True,
+        "withVoice": True,
+        "withV2Timeline": True,
+    }
     if cursor:
         variables["cursor"] = cursor
-    params = urlencode({"variables": json.dumps(variables)})
+    features = build_user_tweets_features()
+    field_toggles = {
+        "withArticlePlainText": False,
+        "withArticleRichContentState": True,
+        "withAuxiliaryUserLabels": False,
+        "withPayments": False,
+        "withGrokAnalyze": False,
+        "withDisallowedReplyControls": False,
+    }
+    params = urlencode(
+        {
+            "variables": json.dumps(variables, separators=(",", ":")),
+            "features": json.dumps(features, separators=(",", ":")),
+            "fieldToggles": json.dumps(field_toggles, separators=(",", ":")),
+        }
+    )
     return f"{TWITTER_API_BASE}/{query_id}/UserTweets?{params}"
+
+
+def build_user_tweets_and_replies_url(
+    query_id: str, user_id: str, cursor: str | None = None
+) -> str:
+    """Build URL for fetching user tweets and replies from Twitter GraphQL API."""
+    variables: dict[str, str | int | bool] = {
+        "userId": user_id,
+        "count": 20,
+        "includePromotedContent": True,
+        "withCommunity": False,
+        "withVoice": True,
+        "withV2Timeline": True,
+    }
+    if cursor:
+        variables["cursor"] = cursor
+    features = build_user_tweets_features()
+    field_toggles = {
+        "withArticlePlainText": False,
+        "withArticleRichContentState": True,
+        "withAuxiliaryUserLabels": False,
+        "withPayments": False,
+        "withGrokAnalyze": False,
+        "withDisallowedReplyControls": False,
+    }
+    params = urlencode(
+        {
+            "variables": json.dumps(variables, separators=(",", ":")),
+            "features": json.dumps(features, separators=(",", ":")),
+            "fieldToggles": json.dumps(field_toggles, separators=(",", ":")),
+        }
+    )
+    return f"{TWITTER_API_BASE}/{query_id}/UserTweetsAndReplies?{params}"
 
 
 def build_likes_url(query_id: str, user_id: str, cursor: str | None = None) -> str:
@@ -180,6 +236,20 @@ async def fetch_user_tweets_page(
 ) -> dict[str, Any]:
     """Fetch a page of user tweets from the Twitter API."""
     url = build_user_tweets_url(query_id, user_id, cursor)
+    response = await client.get(url)
+    response.raise_for_status()
+    result: dict[str, Any] = response.json()
+    return result
+
+
+async def fetch_user_tweets_and_replies_page(
+    client: httpx.AsyncClient,
+    query_id: str,
+    user_id: str,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Fetch a page of user tweets and replies from the Twitter API."""
+    url = build_user_tweets_and_replies_url(query_id, user_id, cursor)
     response = await client.get(url)
     response.raise_for_status()
     result: dict[str, Any] = response.json()
@@ -320,13 +390,10 @@ def parse_user_tweets_response(
     entries: list[dict[str, Any]] = []
     cursor: str | None = None
 
-    timeline = (
-        response.get("data", {})
-        .get("user", {})
-        .get("result", {})
-        .get("timeline_v2", {})
-        .get("timeline", {})
-    )
+    result = response.get("data", {}).get("user", {}).get("result", {})
+    # Handle both timeline_v2 (older API) and timeline (newer API) structures
+    timeline_container = result.get("timeline_v2") or result.get("timeline", {})
+    timeline = timeline_container.get("timeline", {})
 
     for instruction in timeline.get("instructions", []):
         if instruction.get("type") != "TimelineAddEntries":
@@ -483,6 +550,12 @@ def is_repost(raw_tweet: dict[str, Any]) -> bool:
     return "retweeted_status_result" in legacy
 
 
+def is_reply(raw_tweet: dict[str, Any]) -> bool:
+    """Check if a raw tweet is a reply to another tweet."""
+    legacy = raw_tweet.get("legacy", {})
+    return bool(legacy.get("in_reply_to_status_id_str"))
+
+
 def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     """Extract and convert raw tweet data to database format.
 
@@ -560,7 +633,18 @@ def extract_quoted_tweet(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
     Returns:
         Dictionary with normalized quoted tweet data, or None if no quoted tweet.
     """
+    # Check for direct quote tweet at top level
     quoted_result = raw_tweet.get("quoted_status_result", {}).get("result", {})
-    if not quoted_result or not quoted_result.get("rest_id"):
-        return None
-    return extract_tweet_data(quoted_result)
+    if quoted_result and quoted_result.get("rest_id"):
+        return extract_tweet_data(quoted_result)
+
+    # Check for retweet of a quote tweet (nested structure)
+    retweeted_result = (
+        raw_tweet.get("legacy", {}).get("retweeted_status_result", {}).get("result", {})
+    )
+    if retweeted_result:
+        quoted_result = retweeted_result.get("quoted_status_result", {}).get("result", {})
+        if quoted_result and quoted_result.get("rest_id"):
+            return extract_tweet_data(quoted_result)
+
+    return None

@@ -16,7 +16,7 @@ def json(
     collection: str | None = typer.Option(
         None,
         "--collection",
-        help="Filter by collection type (likes, bookmarks, tweets, reposts).",
+        help="Filter by collection type (likes, bookmarks, tweets, reposts, replies, posts).",
     ),
     folder: str | None = typer.Option(
         None,
@@ -38,6 +38,7 @@ def json(
         get_all_tweets,
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
+        get_tweets_by_collections,
     )
 
     data_dir = get_data_dir()
@@ -47,6 +48,9 @@ def json(
     tweets: list[dict[str, Any]]
     if folder and collection_type == "bookmark":
         tweets = get_tweets_by_bookmark_folder(db_path, folder)
+    elif isinstance(collection_type, list):
+        # Combined collection (e.g., "posts" = tweets + replies + reposts)
+        tweets = get_tweets_by_collections(db_path, collection_type)
     elif collection_type:
         tweets = get_tweets_by_collection(db_path, collection_type)
     else:
@@ -76,6 +80,8 @@ COLLECTION_MAP = {
     "bookmarks": "bookmark",
     "tweets": "tweet",
     "reposts": "repost",
+    "replies": "reply",
+    "posts": ["tweet", "repost"],  # Combined collection (replies not available via API)
 }
 
 
@@ -84,7 +90,7 @@ def markdown(
     collection: str | None = typer.Option(
         None,
         "--collection",
-        help="Filter by collection type (likes, bookmarks, tweets, reposts).",
+        help="Filter by collection type (likes, bookmarks, tweets, reposts, replies, posts).",
     ),
     folder: str | None = typer.Option(
         None,
@@ -104,6 +110,7 @@ def markdown(
         get_all_tweets,
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
+        get_tweets_by_collections,
         get_tweets_by_conversation_id,
         get_tweets_by_ids,
     )
@@ -115,6 +122,8 @@ def markdown(
     tweets: list[dict[str, Any]]
     if folder and collection_type == "bookmark":
         tweets = get_tweets_by_bookmark_folder(db_path, folder)
+    elif isinstance(collection_type, list):
+        tweets = get_tweets_by_collections(db_path, collection_type)
     elif collection_type:
         tweets = get_tweets_by_collection(db_path, collection_type)
     else:
@@ -143,8 +152,22 @@ def markdown(
     for t in tweets:
         quoted_tweets[t["id"]] = t
 
+    # Collect parent tweet IDs for replies and fetch them
+    parent_tweet_ids = [
+        t["in_reply_to_tweet_id"]
+        for t in tweets
+        if t.get("in_reply_to_tweet_id")
+        and t["in_reply_to_tweet_id"] not in tweet_ids_in_collection
+    ]
+    parent_tweets_list = get_tweets_by_ids(db_path, parent_tweet_ids)
+    parent_tweets = {t["id"]: t for t in parent_tweets_list}
+
     content = export_tweets_to_markdown(
-        tweets, collection=collection, thread_context=thread_context, quoted_tweets=quoted_tweets
+        tweets,
+        collection=collection,
+        thread_context=thread_context,
+        quoted_tweets=quoted_tweets,
+        parent_tweets=parent_tweets,
     )
 
     output_path = output or _get_default_export_path(data_dir, collection, "md")
@@ -156,7 +179,7 @@ def csv(
     collection: str | None = typer.Option(
         None,
         "--collection",
-        help="Filter by collection type (likes, bookmarks, tweets, reposts).",
+        help="Filter by collection type (likes, bookmarks, tweets, reposts, replies, posts).",
     ),
     folder: str | None = typer.Option(
         None,
@@ -176,6 +199,7 @@ def csv(
         get_all_tweets,
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
+        get_tweets_by_collections,
     )
 
     data_dir = get_data_dir()
@@ -185,6 +209,8 @@ def csv(
     tweets: list[dict[str, Any]]
     if folder and collection_type == "bookmark":
         tweets = get_tweets_by_bookmark_folder(db_path, folder)
+    elif isinstance(collection_type, list):
+        tweets = get_tweets_by_collections(db_path, collection_type)
     elif collection_type:
         tweets = get_tweets_by_collection(db_path, collection_type)
     else:
@@ -201,7 +227,7 @@ def html(
     collection: str | None = typer.Option(
         None,
         "--collection",
-        help="Filter by collection type (likes, bookmarks, tweets, reposts).",
+        help="Filter by collection type (likes, bookmarks, tweets, reposts, replies, posts).",
     ),
     folder: str | None = typer.Option(
         None,
@@ -220,6 +246,7 @@ def html(
         get_all_tweets,
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
+        get_tweets_by_collections,
         get_tweets_by_conversation_id,
         get_tweets_by_ids,
     )
@@ -231,6 +258,8 @@ def html(
     tweets: list[dict[str, Any]]
     if folder and collection_type == "bookmark":
         tweets = get_tweets_by_bookmark_folder(db_path, folder)
+    elif isinstance(collection_type, list):
+        tweets = get_tweets_by_collections(db_path, collection_type)
     elif collection_type:
         tweets = get_tweets_by_collection(db_path, collection_type)
     else:

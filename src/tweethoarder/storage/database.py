@@ -155,9 +155,10 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
             INSERT INTO tweets (
                 id, text, author_id, author_username, author_display_name,
                 author_avatar_url, created_at, conversation_id, quoted_tweet_id,
+                in_reply_to_tweet_id, in_reply_to_user_id,
                 reply_count, retweet_count, like_count, quote_count,
                 urls_json, media_json, raw_json, first_seen_at, last_updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 text = excluded.text,
                 author_id = excluded.author_id,
@@ -166,7 +167,15 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
                 author_avatar_url = excluded.author_avatar_url,
                 created_at = excluded.created_at,
                 conversation_id = excluded.conversation_id,
-                quoted_tweet_id = COALESCE(excluded.quoted_tweet_id, tweets.quoted_tweet_id),
+                quoted_tweet_id = COALESCE(
+                    excluded.quoted_tweet_id, tweets.quoted_tweet_id
+                ),
+                in_reply_to_tweet_id = COALESCE(
+                    excluded.in_reply_to_tweet_id, tweets.in_reply_to_tweet_id
+                ),
+                in_reply_to_user_id = COALESCE(
+                    excluded.in_reply_to_user_id, tweets.in_reply_to_user_id
+                ),
                 reply_count = excluded.reply_count,
                 retweet_count = excluded.retweet_count,
                 like_count = excluded.like_count,
@@ -186,6 +195,8 @@ def save_tweet(db_path: Path, tweet_data: dict[str, Any]) -> None:
                 tweet_data["created_at"],
                 tweet_data.get("conversation_id"),
                 tweet_data.get("quoted_tweet_id"),
+                tweet_data.get("in_reply_to_tweet_id"),
+                tweet_data.get("in_reply_to_user_id"),
                 tweet_data.get("reply_count", 0),
                 tweet_data.get("retweet_count", 0),
                 tweet_data.get("like_count", 0),
@@ -341,3 +352,80 @@ def get_tweets_by_ids(db_path: Path, tweet_ids: list[str]) -> list[dict[str, Any
             tweet_ids,
         )
         return [dict(row) for row in cursor.fetchall()]
+
+
+def tweet_exists(db_path: Path, tweet_id: str) -> bool:
+    """Check if a tweet exists in the database.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        tweet_id: The tweet ID to check.
+
+    Returns:
+        True if the tweet exists, False otherwise.
+    """
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT 1 FROM tweets WHERE id = ?",
+            (tweet_id,),
+        )
+        return cursor.fetchone() is not None
+
+
+def get_tweets_by_collections(db_path: Path, collection_types: list[str]) -> list[dict[str, Any]]:
+    """Get all tweets in multiple collections.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        collection_types: List of collection types (e.g., ["tweet", "reply", "repost"]).
+
+    Returns:
+        List of tweet dictionaries ordered by created_at (most recent first).
+        Note: We use created_at for combined collections because sort_index values
+        from different sync operations aren't comparable chronologically.
+    """
+    if not collection_types:
+        return []
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        placeholders = ",".join("?" * len(collection_types))
+        cursor = conn.execute(
+            f"""
+            SELECT t.* FROM tweets t
+            JOIN collections c ON t.id = c.tweet_id
+            WHERE c.collection_type IN ({placeholders})
+            ORDER BY t.created_at DESC
+            """,
+            collection_types,
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_parent_tweet(db_path: Path, reply_tweet_id: str) -> dict[str, Any] | None:
+    """Get the parent tweet for a reply.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        reply_tweet_id: The ID of the reply tweet.
+
+    Returns:
+        The parent tweet as a dictionary, or None if not found.
+    """
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        # First get the in_reply_to_tweet_id from the reply
+        cursor = conn.execute(
+            "SELECT in_reply_to_tweet_id FROM tweets WHERE id = ?",
+            (reply_tweet_id,),
+        )
+        row = cursor.fetchone()
+        if not row or not row["in_reply_to_tweet_id"]:
+            return None
+        # Then get the parent tweet
+        parent_id = row["in_reply_to_tweet_id"]
+        cursor = conn.execute(
+            "SELECT * FROM tweets WHERE id = ?",
+            (parent_id,),
+        )
+        parent_row = cursor.fetchone()
+        return dict(parent_row) if parent_row else None

@@ -15,6 +15,8 @@ COLLECTION_TITLES = {
     "bookmarks": "Bookmarked Tweets",
     "tweets": "My Tweets",
     "reposts": "Reposted Tweets",
+    "replies": "My Replies",
+    "posts": "My Posts",
 }
 
 
@@ -86,13 +88,44 @@ def _format_quoted_tweet(quoted_tweet: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _format_parent_tweet(parent_tweet: dict[str, Any]) -> list[str]:
+    """Format a parent tweet (for replies) as a blockquote."""
+    lines: list[str] = []
+    pt_username = parent_tweet.get("author_username", "unknown")
+    pt_display = parent_tweet.get("author_display_name") or pt_username
+    pt_text = _format_tweet_text(parent_tweet)
+    pt_id = parent_tweet.get("id", "")
+
+    lines.append(f"> **In reply to @{pt_username}:**")
+    lines.append(f"> **{pt_display}** [@{pt_username}](https://x.com/{pt_username})")
+    lines.append(">")
+    # Indent each line of the parent tweet text
+    for text_line in pt_text.split("\n"):
+        lines.append(f"> {text_line}")
+    lines.append(">")
+    lines.append(f"> [View original](https://x.com/{pt_username}/status/{pt_id})")
+    return lines
+
+
 def export_tweets_to_markdown(
     tweets: list[dict[str, Any]],
     collection: str | None = None,
     thread_context: dict[str, list[dict[str, Any]]] | None = None,
     quoted_tweets: dict[str, dict[str, Any]] | None = None,
+    parent_tweets: dict[str, dict[str, Any]] | None = None,
 ) -> str:
-    """Export tweets to Markdown format."""
+    """Export tweets to Markdown format.
+
+    Args:
+        tweets: List of tweet dictionaries to export.
+        collection: Optional collection name for title.
+        thread_context: Optional dict mapping conversation_id to list of thread tweets.
+        quoted_tweets: Optional dict mapping tweet_id to quoted tweet data.
+        parent_tweets: Optional dict mapping tweet_id to parent tweet data (for replies).
+
+    Returns:
+        Markdown formatted string.
+    """
     lines: list[str] = []
 
     if collection:
@@ -147,6 +180,15 @@ def export_tweets_to_markdown(
         else:
             lines.append(f"## @{username} - {date_str}")
             lines.append("")
+
+            # For replies, show parent tweet context first
+            in_reply_to_id = tweet.get("in_reply_to_tweet_id")
+            if in_reply_to_id and parent_tweets:
+                parent_tweet = parent_tweets.get(in_reply_to_id)
+                if parent_tweet:
+                    lines.extend(_format_parent_tweet(parent_tweet))
+                    lines.append("")
+
             text = _format_tweet_text(tweet)
             lines.append(text)
             lines.append("")

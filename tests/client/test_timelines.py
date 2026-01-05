@@ -1305,3 +1305,53 @@ def test_extract_tweet_data_uses_note_tweet_for_long_text() -> None:
     result = extract_tweet_data(raw_tweet)
 
     assert "full text that includes everything" in result["text"]
+
+
+def test_is_reply_exists() -> None:
+    """is_reply function should be importable."""
+    from tweethoarder.client.timelines import is_reply
+
+    assert callable(is_reply)
+
+
+def test_is_reply_returns_true_for_reply() -> None:
+    """is_reply should return True for tweets with in_reply_to_status_id_str."""
+    from tweethoarder.client.timelines import is_reply
+
+    reply_tweet = {"legacy": {"in_reply_to_status_id_str": "123456789"}}
+
+    assert is_reply(reply_tweet) is True
+
+
+def test_is_reply_returns_false_for_regular_tweet() -> None:
+    """is_reply should return False for regular tweets."""
+    from tweethoarder.client.timelines import is_reply
+
+    regular_tweet = {"legacy": {"full_text": "Hello world"}}
+
+    assert is_reply(regular_tweet) is False
+
+
+def test_build_user_tweets_and_replies_url_exists() -> None:
+    """build_user_tweets_and_replies_url function should be importable."""
+    from tweethoarder.client.timelines import build_user_tweets_and_replies_url
+
+    assert callable(build_user_tweets_and_replies_url)
+
+
+def test_build_user_tweets_and_replies_url_includes_endpoint() -> None:
+    """build_user_tweets_and_replies_url should use UserTweetsAndReplies endpoint."""
+    from tweethoarder.client.timelines import build_user_tweets_and_replies_url
+
+    url = build_user_tweets_and_replies_url(query_id="ABC123", user_id="12345")
+
+    assert "UserTweetsAndReplies" in url
+    assert "ABC123" in url
+    assert "/graphql/" in url
+
+
+def test_fetch_user_tweets_and_replies_page_exists() -> None:
+    """fetch_user_tweets_and_replies_page function should be importable."""
+    from tweethoarder.client.timelines import fetch_user_tweets_and_replies_page
+
+    assert callable(fetch_user_tweets_and_replies_page)

@@ -26,6 +26,7 @@ def build_timeline_features() -> dict[str, bool]:
         "responsive_web_grok_analyze_post_followups_enabled": False,
         "responsive_web_jetfuel_frame": True,
         "responsive_web_grok_share_attachment_enabled": True,
+        "responsive_web_grok_annotations_enabled": True,
         "articles_preview_enabled": True,
         "responsive_web_edit_tweet_api_enabled": True,
         "graphql_is_translatable_rweb_tweet_is_translatable_enabled": True,
@@ -74,4 +75,9 @@ def build_likes_features() -> dict[str, bool]:
 
 def build_tweet_detail_features() -> dict[str, bool]:
     """Build feature flags for TweetDetail requests."""
+    return build_timeline_features()
+
+
+def build_user_tweets_features() -> dict[str, bool]:
+    """Build feature flags for UserTweets and UserTweetsAndReplies requests."""
     return build_timeline_features()
