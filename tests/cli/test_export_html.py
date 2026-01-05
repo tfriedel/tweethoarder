@@ -949,3 +949,151 @@ def test_html_export_applies_richtext_formatting(tmp_path: Path) -> None:
         assert "richtext_tags" in content
         # Should call applyRichtext in the rendering pipeline
         assert "applyRichtext(" in content
+
+
+def test_html_export_facets_include_display_name(tmp_path: Path) -> None:
+    """FACETS.authors should include display_name for author filtering."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "author_display_name": "Test User Display",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # FACETS should include display_name in authors array
+        import json
+        import re
+
+        # Extract FACETS JSON from the HTML
+        facets_match = re.search(r"const FACETS = ({.*?});", content, re.DOTALL)
+        assert facets_match is not None, "FACETS not found in HTML"
+
+        facets = json.loads(facets_match.group(1))
+        assert "authors" in facets
+        assert len(facets["authors"]) == 1
+
+        author = facets["authors"][0]
+        assert "username" in author
+        assert "display_name" in author
+        assert "count" in author
+        assert author["username"] == "testuser"
+        assert author["display_name"] == "Test User Display"
+        assert author["count"] == 1
+
+
+def test_html_export_has_author_filter_input(tmp_path: Path) -> None:
+    """HTML export should have an input field for filtering authors."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have an input for filtering authors
+        assert 'id="author-search"' in content or "id='author-search'" in content
+
+        # Should have a container for the author list
+        assert 'id="author-list"' in content or "id='author-list'" in content
+
+        # Should have date range inputs
+        assert 'id="date-from"' in content or "id='date-from'" in content
+        assert 'id="date-to"' in content or "id='date-to'" in content
+
+        # Should have clear filters button
+        assert 'id="clear-filters"' in content or "id='clear-filters'" in content
+
+        # Should have results count element
+        assert 'id="results-count"' in content or "id='results-count'" in content
+
+
+def test_html_export_has_filter_javascript_functions(tmp_path: Path) -> None:
+    """HTML export should have JavaScript functions for advanced filtering."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have selectedAuthors state variable
+        assert "let selectedAuthors" in content or "const selectedAuthors" in content
+
+        # Should have renderAuthorList function
+        assert "function renderAuthorList" in content
+
+        # Should have applyAllFilters function
+        assert "function applyAllFilters" in content
+
+        # Should have event handlers for filter inputs
+        assert "author-search" in content and "addEventListener" in content
+        assert "author-list" in content
+        assert "date-from" in content and "date-to" in content
+        assert "clear-filters" in content
