@@ -22,6 +22,63 @@ if TYPE_CHECKING:
 TWITTER_DATE_FORMAT = "%a %b %d %H:%M:%S %z %Y"
 
 
+def _strip_media_item(media_item: dict[str, Any]) -> dict[str, Any]:
+    """Strip unnecessary fields from a media item, keeping only what we need for display."""
+    stripped = {
+        "type": media_item.get("type"),
+        "media_url_https": media_item.get("media_url_https"),
+        "display_url": media_item.get("display_url"),
+        "expanded_url": media_item.get("expanded_url"),
+    }
+    # For videos, include only the highest quality variant URL
+    video_info = media_item.get("video_info")
+    if video_info and video_info.get("variants"):
+        mp4_variants = [v for v in video_info["variants"] if v.get("content_type") == "video/mp4"]
+        if mp4_variants:
+            best = max(mp4_variants, key=lambda v: v.get("bitrate", 0))
+            stripped["video_url"] = best.get("url")
+    return stripped
+
+
+def _strip_media(media: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+    """Strip unnecessary fields from media list."""
+    if not media:
+        return None
+    return [_strip_media_item(m) for m in media]
+
+
+def _strip_urls(urls: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+    """Strip unnecessary fields from URLs list, keeping only what we need."""
+    if not urls:
+        return None
+    return [
+        {
+            "url": u.get("url"),
+            "expanded_url": u.get("expanded_url"),
+            "display_url": u.get("display_url"),
+        }
+        for u in urls
+    ]
+
+
+def _strip_hashtags(
+    hashtags: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]] | None:
+    """Strip unnecessary fields from hashtags list."""
+    if not hashtags:
+        return None
+    return [{"text": h.get("text")} for h in hashtags]
+
+
+def _strip_mentions(
+    mentions: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]] | None:
+    """Strip unnecessary fields from mentions list."""
+    if not mentions:
+        return None
+    return [{"screen_name": m.get("screen_name"), "id_str": m.get("id_str")} for m in mentions]
+
+
 def build_tweet_detail_url(query_id: str, tweet_id: str) -> str:
     """Build URL for fetching tweet detail from Twitter GraphQL API."""
     variables: dict[str, str | int | bool] = {
@@ -455,10 +512,10 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
         "quoted_tweet_id": quoted_tweet_id,
         "is_retweet": "retweeted_status_result" in legacy,
         "retweeted_tweet_id": retweet_result.get("rest_id"),
-        "urls_json": json.dumps(urls) if urls else None,
-        "media_json": json.dumps(media) if media else None,
-        "hashtags_json": json.dumps(hashtags) if hashtags else None,
-        "mentions_json": json.dumps(mentions) if mentions else None,
+        "urls_json": json.dumps(_strip_urls(urls)) if urls else None,
+        "media_json": json.dumps(_strip_media(media)) if media else None,
+        "hashtags_json": json.dumps(_strip_hashtags(hashtags)) if hashtags else None,
+        "mentions_json": json.dumps(_strip_mentions(mentions)) if mentions else None,
         "reply_count": legacy.get("reply_count", 0),
         "retweet_count": legacy.get("retweet_count", 0),
         "like_count": legacy.get("favorite_count", 0),
