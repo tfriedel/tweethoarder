@@ -5,6 +5,11 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from tweethoarder.export.richtext import (
+    apply_richtext_tags_markdown,
+    extract_richtext_tags,
+)
+
 COLLECTION_TITLES = {
     "likes": "Liked Tweets",
     "bookmarks": "Bookmarked Tweets",
@@ -16,6 +21,33 @@ COLLECTION_TITLES = {
 def _linkify_mentions(text: str) -> str:
     """Convert @mentions to markdown links."""
     return re.sub(r"@(\w+)", r"[@\1](https://x.com/\1)", text)
+
+
+def _format_tweet_text(tweet: dict[str, Any]) -> str:
+    """Format tweet text with URL expansion, mention links, and rich text formatting.
+
+    Args:
+        tweet: Tweet dictionary containing text, urls_json, and optionally raw_json.
+
+    Returns:
+        Formatted text with expanded URLs, clickable mentions, and bold/italic formatting.
+    """
+    text = tweet.get("text", "")
+    urls_json = tweet.get("urls_json")
+    raw_json = tweet.get("raw_json")
+
+    # Extract richtext tags first (before URL expansion changes positions)
+    richtext_tags = extract_richtext_tags(raw_json)
+
+    # Apply rich text formatting if available (must be done on original text indices)
+    if richtext_tags:
+        text = apply_richtext_tags_markdown(text, richtext_tags)
+
+    # Then expand URLs and linkify mentions
+    text = _expand_urls(text, urls_json)
+    text = _linkify_mentions(text)
+
+    return text
 
 
 def _expand_urls(text: str, urls_json: str | None) -> str:
@@ -40,9 +72,7 @@ def _format_quoted_tweet(quoted_tweet: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     qt_username = quoted_tweet.get("author_username", "unknown")
     qt_display = quoted_tweet.get("author_display_name") or qt_username
-    qt_text = _linkify_mentions(
-        _expand_urls(quoted_tweet.get("text", ""), quoted_tweet.get("urls_json"))
-    )
+    qt_text = _format_tweet_text(quoted_tweet)
     qt_id = quoted_tweet.get("id", "")
 
     lines.append("> **Quote:**")
@@ -108,7 +138,7 @@ def export_tweets_to_markdown(
             liked_tweet_id = tweet.get("id", "")
             sorted_tweets = sorted(thread_tweets, key=lambda t: t.get("created_at", ""))
             for t in sorted_tweets:
-                text = _linkify_mentions(_expand_urls(t.get("text", ""), t.get("urls_json")))
+                text = _format_tweet_text(t)
                 if t.get("id") == liked_tweet_id:
                     lines.append(f"⭐ {text}")
                 else:
@@ -117,7 +147,7 @@ def export_tweets_to_markdown(
         else:
             lines.append(f"## @{username} - {date_str}")
             lines.append("")
-            text = _linkify_mentions(_expand_urls(tweet.get("text", ""), tweet.get("urls_json")))
+            text = _format_tweet_text(tweet)
             lines.append(text)
             lines.append("")
 
