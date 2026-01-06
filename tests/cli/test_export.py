@@ -418,8 +418,8 @@ def test_export_html_no_duplicate_server_rendering(tmp_path: Path, monkeypatch: 
     runner.invoke(app, ["export", "html", "--collection", "likes", "--output", str(output_path)])
 
     content = output_path.read_text()
-    # Check that main container is empty (JS will populate it)
-    assert '<main id="tweets">\n</main>' in content or '<main id="tweets"></main>' in content
+    # Check that tweet-container is empty (JS virtual scroll will populate it)
+    assert '<div id="tweet-container"></div>' in content
 
 
 def test_export_json_has_folder_option() -> None:
