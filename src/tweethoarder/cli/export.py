@@ -1075,7 +1075,10 @@ def html(
         "  }",
         "  findMatches = [];",
         "  currentFilteredTweets.forEach((t, idx) => {",
-        "    if (t.text.toLowerCase().includes(findQuery)) findMatches.push(idx);",
+        "    const mainText = t.text.toLowerCase();",
+        "    const threadText = getThreadText(t).toLowerCase();",
+        "    if (mainText.includes(findQuery) || threadText.includes(findQuery)) "
+        "findMatches.push(idx);",
         "  });",
         "  findCurrentIdx = findMatches.length > 0 ? 0 : -1;",
         "  updateFindCount();",
