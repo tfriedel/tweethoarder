@@ -25,11 +25,15 @@ TWITTER_DATE_FORMAT = "%a %b %d %H:%M:%S %z %Y"
 
 def _strip_media_item(media_item: dict[str, Any]) -> dict[str, Any]:
     """Strip unnecessary fields from a media item, keeping only what we need for display."""
+    # Get dimensions from original_info if available
+    original_info = media_item.get("original_info", {})
     stripped = {
         "type": media_item.get("type"),
         "media_url_https": media_item.get("media_url_https"),
         "display_url": media_item.get("display_url"),
         "expanded_url": media_item.get("expanded_url"),
+        "width": original_info.get("width"),
+        "height": original_info.get("height"),
     }
     # For videos, include only the highest quality variant URL
     video_info = media_item.get("video_info")

@@ -236,8 +236,10 @@ def test_html_export_renders_retweets(tmp_path: Path) -> None:
         assert "${rtHeader}" in content
 
 
-def test_html_export_image_toggle(tmp_path: Path) -> None:
-    """HTML export should have toggle to load images."""
+def test_html_export_auto_loads_images_with_aspect_ratio(tmp_path: Path) -> None:
+    """HTML export should auto-load images with aspect-ratio for layout stability."""
+    media = '[{"type": "photo", "media_url_https": "https://example.com/img.jpg", '
+    media += '"width": 800, "height": 600}]'
     mock_tweets = [
         {
             "id": "1",
@@ -245,7 +247,7 @@ def test_html_export_image_toggle(tmp_path: Path) -> None:
             "author_id": "user1",
             "author_username": "testuser",
             "created_at": "2025-01-01T12:00:00Z",
-            "media_json": '[{"type": "photo", "media_url_https": "https://example.com/img.jpg"}]',
+            "media_json": media,
         }
     ]
 
@@ -268,26 +270,19 @@ def test_html_export_image_toggle(tmp_path: Path) -> None:
         assert result.exit_code == 0
         content = output_file.read_text()
 
-        # Should have CSS for image placeholder
-        assert ".media-placeholder" in content
-
-        # Should have a toggle button for images
-        assert "load-images" in content or "loadImages" in content
-
-        # JS should parse media_json and render placeholders
+        # JS should parse media_json and call renderMedia
         assert "media_json" in content
-        assert "renderMedia" in content or "t.media_json" in content
+        assert "renderMedia" in content
 
-        # Load Images button should have event listener that sets imagesEnabled
-        assert "load-images" in content
-        assert (
-            "loadBtn.addEventListener" in content
-            or "getElementById('load-images').addEventListener" in content
-        )
+        # renderMedia should use aspect-ratio for layout stability
+        assert "aspect-ratio" in content
 
-        # Media placeholders should be clickable to load individual images
-        assert "media-placeholder" in content
-        assert "onclick=" in content  # inline click handler on placeholder
+        # Images should use lazy loading
+        assert "loading='lazy'" in content or 'loading="lazy"' in content
+
+        # Should NOT have a toggle button (images auto-load)
+        assert "load-images" not in content
+        assert "loadBtn" not in content
 
 
 def test_html_export_renders_media_in_template(tmp_path: Path) -> None:

@@ -687,7 +687,6 @@ def html(
         "    btn.classList.toggle('active', btn.dataset.theme === theme);",
         "  });",
         "}",
-        "let imagesEnabled = false;",
         "function renderMedia(mediaJson) {",
         "  if (!mediaJson) return '';",
         "  try {",
@@ -695,14 +694,11 @@ def html(
         "    return media.map(m => {",
         "      const url = m.media_url_https || m.media_url;",
         "      if (!isValidMediaUrl(url)) return '';",
-        "      if (imagesEnabled) {",
-        "        return `<img src='${url}' "
-        "style='max-width:100%;border-radius:8px;margin-top:8px'>`;",
-        "      }",
-        "      return `<div class='media-placeholder' data-src='${url}' "
-        'onclick=\'this.outerHTML=\\`<img src="${url}" '
-        'style="max-width:100%;border-radius:8px;margin-top:8px">\\`\'>'
-        "Click to load image</div>`;",
+        "      const w = m.width || 600;",
+        "      const h = m.height || 400;",
+        "      const aspectStyle = `aspect-ratio: ${w} / ${h}`;",
+        "      return `<img src='${url}' loading='lazy' "
+        "style='max-width:100%;border-radius:8px;margin-top:8px;${aspectStyle};width:100%;object-fit:cover'>`;",
         "    }).join('');",
         "  } catch (e) { console.error('Failed to render media:', e.message); return ''; }",
         "}",
@@ -1168,13 +1164,6 @@ def html(
         "    renderAuthorList('');",
         "    applyAllFilters();",
         "  });",
-        "  const loadBtn = document.getElementById('load-images');",
-        "  loadBtn.addEventListener('click', () => {",
-        "    imagesEnabled = true;",
-        "    loadBtn.disabled = true;",
-        "    loadBtn.textContent = 'Images Enabled';",
-        "    applyAllFilters();",
-        "  });",
         "  const themeSwitcher = document.getElementById('theme-switcher');",
         "  themeSwitcher.addEventListener('click', (e) => {",
         "    if (e.target.dataset.theme) setTheme(e.target.dataset.theme);",
@@ -1216,7 +1205,6 @@ def html(
         '<input type="date" id="date-from">',
         '<input type="date" id="date-to">',
         '<button id="clear-filters">Clear All Filters</button>',
-        '<button id="load-images">Load Images</button>',
         '<div id="results-count"></div>',
         "</aside>",
         # Find bar (Ctrl+F replacement)
