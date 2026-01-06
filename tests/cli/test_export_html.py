@@ -42,9 +42,9 @@ def test_html_export_renders_avatar_with_styling(tmp_path: Path) -> None:
         assert result.exit_code == 0
         content = output_file.read_text()
 
-        # Should have CSS for circular avatar styling
+        # Should have CSS for circular avatar styling (Twitter uses 9999px for circles)
         assert ".avatar" in content
-        assert "border-radius: 50%" in content
+        assert "border-radius: 9999px" in content
 
         # JS should render avatar img with class="avatar"
         assert 'class="avatar"' in content or "class='avatar'" in content
@@ -122,20 +122,19 @@ def test_html_export_twitter_like_card_styling(tmp_path: Path) -> None:
         assert result.exit_code == 0
         content = output_file.read_text()
 
-        # Should have card-like article styling with border-radius
+        # Should have border-radius for rounded elements (avatars, buttons, etc.)
         assert "border-radius" in content
-        # Should have Twitter blue for links
-        assert "#1DA1F2" in content or "#1da1f2" in content
-        # Articles should have card styling
+        # Should have Twitter blue via CSS variable
+        assert "--accent-blue" in content
+        # Articles should have Twitter-style border-bottom dividers
         assert "article {" in content or "article{" in content
-        # Article should have rounded corners (card style)
-        # Extract the article CSS rule and check for border-radius
+        # Article should have border-bottom (Twitter-style tweet dividers)
         import re
 
         article_match = re.search(r"article\s*\{[^}]+\}", content)
         assert article_match is not None
         article_css = article_match.group(0)
-        assert "border-radius" in article_css
+        assert "border-bottom" in article_css
 
 
 def test_html_export_renders_quote_tweets(tmp_path: Path) -> None:
@@ -1266,3 +1265,347 @@ def test_html_export_collection_all_has_type_badges(tmp_path: Path) -> None:
         assert "renderTypeBadges" in content
         # Should have TYPE_ICONS constant
         assert "TYPE_ICONS" in content
+
+
+def test_html_export_uses_css_variables(tmp_path: Path) -> None:
+    """HTML export should use CSS custom properties for theming."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have CSS custom properties defined in :root
+        assert ":root {" in content or ":root{" in content
+        assert "--bg-primary" in content
+        assert "--text-primary" in content
+        assert "--border-color" in content
+        assert "--accent-blue" in content
+
+        # Should have theme variants
+        assert '[data-theme="light"]' in content
+        assert '[data-theme="dim"]' in content
+
+        # CSS should use var() references
+        assert "var(--bg-primary)" in content
+        assert "var(--text-primary)" in content
+        assert "var(--border-color)" in content
+
+
+def test_html_export_has_theme_switcher_ui(tmp_path: Path) -> None:
+    """HTML export should have a theme switcher with Light/Dark/Dim buttons."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have theme switcher container
+        assert 'id="theme-switcher"' in content
+
+        # Should have buttons for each theme
+        assert 'data-theme="dark"' in content
+        assert 'data-theme="dim"' in content
+        assert 'data-theme="light"' in content
+
+        # Should have CSS for theme switcher
+        assert "#theme-switcher" in content
+        assert "#theme-switcher button" in content
+
+
+def test_html_export_has_theme_switcher_javascript(tmp_path: Path) -> None:
+    """HTML export should have JavaScript to switch themes with localStorage."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have setTheme function
+        assert "function setTheme" in content
+
+        # Should use localStorage for persistence
+        assert "localStorage" in content
+        assert "tweethoarder-theme" in content
+
+        # Should set data-theme attribute on document
+        assert "dataset.theme" in content or "data-theme" in content
+
+        # Should have event listener for theme switcher
+        assert "theme-switcher" in content and "addEventListener" in content
+
+
+def test_html_export_tweet_flex_layout(tmp_path: Path) -> None:
+    """HTML export should use flex layout for tweets with avatar and content columns."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # CSS should have flex layout for tweet container
+        assert ".tweet-container" in content
+        assert "display: flex" in content
+
+        # CSS should have avatar column and content column
+        assert ".tweet-avatar-col" in content
+        assert ".tweet-content-col" in content
+
+        # JavaScript template should generate flex layout HTML structure (in template literals)
+        # Check for class names in the JavaScript return template, not just CSS
+        assert (
+            "<div class='tweet-container'>" in content or '<div class="tweet-container">' in content
+        )
+        assert (
+            "<div class='tweet-avatar-col'>" in content
+            or '<div class="tweet-avatar-col">' in content
+        )
+        assert (
+            "<div class='tweet-content-col'>" in content
+            or '<div class="tweet-content-col">' in content
+        )
+
+
+def test_html_export_author_handle_separation(tmp_path: Path) -> None:
+    """HTML export should separate author name and handle with distinct styling."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "author_display_name": "Test User",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # CSS should have separate styling for author name and handle
+        assert ".author-name" in content
+        assert ".author-handle" in content
+
+        # JavaScript template should use these classes
+        assert "class='author-name'" in content or 'class="author-name"' in content
+        assert "class='author-handle'" in content or 'class="author-handle"' in content
+
+
+def test_html_export_thread_connector_css(tmp_path: Path) -> None:
+    """HTML export should have CSS for thread connector lines."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # CSS should have thread connector styling
+        assert ".thread-connector" in content
+        assert "var(--border-color)" in content
+
+
+def test_html_export_tweet_max_width(tmp_path: Path) -> None:
+    """HTML export should constrain tweet width to match Twitter's 600px layout."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have max-width CSS variable
+        assert "--tweet-max-width" in content
+
+        # #tweets should use max-width
+        assert "#tweets" in content and "max-width" in content
+
+
+def test_html_export_twitter_font_stack(tmp_path: Path) -> None:
+    """HTML export should use Twitter-style font stack."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have font stack CSS variable with system fonts
+        assert "--font-stack" in content
+        assert "-apple-system" in content
+        assert "BlinkMacSystemFont" in content
+        assert "Segoe UI" in content

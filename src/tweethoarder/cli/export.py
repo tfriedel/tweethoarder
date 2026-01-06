@@ -417,44 +417,125 @@ def html(
         "<head>",
         '<meta charset="utf-8">',
         "<style>",
-        "body { font-family: sans-serif; display: flex; margin: 0; }",
-        "#filters { width: 250px; padding: 1rem; border-right: 1px solid #ddd; }",
-        "#tweets { flex: 1; padding: 1rem; overflow-y: auto; }",
-        "article { margin-bottom: 1rem; padding: 1rem; border: 1px solid #e1e8ed; "
-        "border-radius: 12px; }",
-        ".avatar { width: 48px; height: 48px; border-radius: 50%; }",
-        ".avatar-placeholder { width: 48px; height: 48px; border-radius: 50%; background: #ccc; }",
-        "a { color: #1DA1F2; }",
-        ".quoted-tweet { margin-top: 8px; padding: 12px; border: 1px solid #e1e8ed; "
-        "border-radius: 12px; background: #f7f9fa; }",
-        ".retweet-header { color: #657786; font-size: 13px; margin-bottom: 4px; }",
-        ".type-badges { display: inline-block; margin-left: 8px; }",
+        # CSS Variables - Default to Dark ("Lights Out") theme
+        ":root { "
+        "--bg-primary: hsl(0 0% 0%); "
+        "--bg-secondary: hsl(220 12% 10%); "
+        "--text-primary: hsl(200 7% 91%); "
+        "--text-secondary: hsl(240 5% 65%); "
+        "--border-color: hsl(210 7% 18%); "
+        "--accent-blue: hsl(204 88% 53%); "
+        "--accent-pink: hsl(356 91% 54%); "
+        "--accent-green: hsl(160 100% 36%); "
+        "--font-stack: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, "
+        "Helvetica, Arial, sans-serif; "
+        "--tweet-max-width: 600px; "
+        "--avatar-size: 48px; "
+        "}",
+        # Light theme
+        '[data-theme="light"] { '
+        "--bg-primary: hsl(0 0% 100%); "
+        "--bg-secondary: hsl(180 14% 97%); "
+        "--text-primary: hsl(210 25% 8%); "
+        "--text-secondary: hsl(206 15% 38%); "
+        "--border-color: hsl(197 16% 91%); "
+        "}",
+        # Dim theme
+        '[data-theme="dim"] { '
+        "--bg-primary: hsl(210 34% 13%); "
+        "--bg-secondary: hsl(213 25% 16%); "
+        "--text-primary: hsl(180 14% 97%); "
+        "--text-secondary: hsl(240 5% 65%); "
+        "--border-color: hsl(210 21% 28%); "
+        "}",
+        # Base styles
+        "* { box-sizing: border-box; }",
+        "body { font-family: var(--font-stack); display: flex; margin: 0; "
+        "background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }",
+        "#filters { width: 280px; padding: 16px; border-right: 1px solid var(--border-color); "
+        "background: var(--bg-primary); overflow-y: auto; height: 100vh; "
+        "position: sticky; top: 0; }",
+        "#tweets { flex: 1; max-width: var(--tweet-max-width); margin: 0 auto; "
+        "border-left: 1px solid var(--border-color); "
+        "border-right: 1px solid var(--border-color); }",
+        # Tweet card styles
+        "article { border-bottom: 1px solid var(--border-color); padding: 12px 16px; }",
+        ".tweet-container { display: flex; gap: 12px; }",
+        ".tweet-avatar-col { flex-shrink: 0; display: flex; flex-direction: column; "
+        "align-items: center; }",
+        ".tweet-content-col { flex: 1; min-width: 0; }",
+        ".avatar { width: var(--avatar-size); height: var(--avatar-size); "
+        "border-radius: 9999px; object-fit: cover; }",
+        ".avatar-placeholder { width: var(--avatar-size); height: var(--avatar-size); "
+        "border-radius: 9999px; background: var(--text-secondary); }",
+        ".thread-connector { width: 2px; flex: 1; background: var(--border-color); "
+        "margin-top: 4px; min-height: 12px; }",
+        # Tweet header and content
+        ".tweet-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; }",
+        ".author-name { font-weight: 700; color: var(--text-primary); font-size: 15px; }",
+        ".author-handle { color: var(--text-secondary); font-size: 15px; }",
+        ".tweet-time { color: var(--text-secondary); font-size: 15px; }",
+        ".tweet-time::before { content: '·'; margin: 0 4px; }",
+        ".tweet-body { color: var(--text-primary); font-size: 15px; line-height: 1.4; "
+        "word-wrap: break-word; margin-top: 4px; }",
+        # Links
+        "a { color: var(--accent-blue); text-decoration: none; }",
+        "a:hover { text-decoration: underline; }",
+        # Quoted tweets and retweets
+        ".quoted-tweet { margin-top: 12px; padding: 12px; border: 1px solid var(--border-color); "
+        "border-radius: 16px; background: var(--bg-secondary); }",
+        ".retweet-header { color: var(--text-secondary); font-size: 13px; font-weight: 700; "
+        "margin-bottom: 4px; margin-left: calc(var(--avatar-size) + 12px); }",
+        # Type badges
+        ".type-badges { display: inline-flex; margin-left: 4px; }",
         ".type-badge { font-size: 14px; margin-right: 2px; cursor: default; }",
-        ".media-placeholder { background: #e1e8ed; border-radius: 8px; padding: 40px; "
-        "text-align: center; color: #657786; cursor: pointer; margin-top: 8px; }",
-        "@media (max-width: 768px) { body { flex-direction: column; } "
-        "#filters { width: 100%; border-right: none; border-bottom: 1px solid #ddd; } }",
-        "#filters h3 { margin: 1rem 0 0.5rem; font-size: 14px; color: #657786; }",
-        "#filters h3:first-child { margin-top: 0; }",
+        # Media
+        ".media-placeholder { background: var(--bg-secondary); "
+        "border: 1px solid var(--border-color); border-radius: 16px; padding: 40px; "
+        "text-align: center; color: var(--text-secondary); cursor: pointer; margin-top: 12px; }",
+        ".tweet-actions { margin-top: 12px; }",
+        ".view-link { color: var(--accent-blue); font-size: 13px; }",
+        # Theme switcher - subtle, compact
+        "#theme-switcher { display: flex; gap: 4px; margin-bottom: 12px; }",
+        "#theme-switcher button { padding: 4px 8px; border: 1px solid var(--border-color); "
+        "background: transparent; color: var(--text-secondary); border-radius: 4px; "
+        "cursor: pointer; font-size: 11px; }",
+        "#theme-switcher button:hover { color: var(--text-primary); "
+        "border-color: var(--text-secondary); }",
+        "#theme-switcher button.active { color: var(--text-primary); "
+        "border-color: var(--text-primary); }",
+        # Filter sidebar
+        "#filters h3 { margin: 16px 0 8px; font-size: 14px; font-weight: 700; "
+        "color: var(--text-primary); }",
+        "#filters h3:first-of-type { margin-top: 0; }",
         "#filters input[type='search'], #filters input[type='text'], "
-        "#filters input[type='date'] { width: 100%; padding: 8px; margin-bottom: 8px; "
-        "border: 1px solid #e1e8ed; border-radius: 8px; box-sizing: border-box; }",
+        "#filters input[type='date'] { width: 100%; padding: 12px 16px; "
+        "border: 1px solid var(--border-color); border-radius: 9999px; "
+        "background: var(--bg-secondary); color: var(--text-primary); "
+        "font-size: 15px; margin-bottom: 8px; }",
+        "#filters input:focus { outline: none; border-color: var(--accent-blue); }",
         "#type-list, #author-list { max-height: 200px; overflow-y: auto; "
-        "border: 1px solid #e1e8ed; border-radius: 8px; margin-bottom: 8px; }",
+        "border: 1px solid var(--border-color); border-radius: 12px; margin-bottom: 8px; }",
         "#type-list label, #author-list label { display: flex; align-items: center; "
-        "padding: 8px; cursor: pointer; border-bottom: 1px solid #e1e8ed; "
-        "font-size: 13px; gap: 4px; }",
+        "padding: 12px; cursor: pointer; border-bottom: 1px solid var(--border-color); "
+        "font-size: 14px; gap: 8px; }",
         "#type-list label:last-child, #author-list label:last-child { border-bottom: none; }",
-        "#type-list label:hover, #author-list label:hover { background: #f7f9fa; }",
-        "#type-list label.selected, #author-list label.selected { background: #e8f5fd; }",
+        "#type-list label:hover, #author-list label:hover { background: var(--bg-secondary); }",
         "#type-list .author-name, #author-list .author-name { flex: 1; overflow: hidden; "
         "text-overflow: ellipsis; white-space: nowrap; min-width: 0; }",
-        "#type-list .author-count, #author-list .author-count { flex-shrink: 0; color: #657786; }",
-        "#filters button { width: 100%; padding: 8px; margin-top: 8px; "
-        "border: 1px solid #e1e8ed; border-radius: 8px; cursor: pointer; "
-        "background: #fff; }",
-        "#filters button:hover { background: #f7f9fa; }",
-        "#results-count { margin-top: 8px; font-size: 13px; color: #657786; }",
+        "#type-list .author-count, #author-list .author-count { "
+        "flex-shrink: 0; color: var(--text-secondary); }",
+        "#filters button { width: 100%; padding: 12px; margin-top: 8px; "
+        "border: 1px solid var(--border-color); border-radius: 9999px; cursor: pointer; "
+        "background: var(--bg-secondary); color: var(--text-primary); font-weight: 700; }",
+        "#filters button:hover { background: var(--text-secondary); color: var(--bg-primary); }",
+        "#results-count { margin-top: 12px; font-size: 13px; "
+        "color: var(--text-secondary); text-align: center; }",
+        # Responsive
+        "@media (max-width: 768px) { body { flex-direction: column; } "
+        "#filters { width: 100%; height: auto; position: static; border-right: none; "
+        "border-bottom: 1px solid var(--border-color); } "
+        "#tweets { border-left: none; border-right: none; } }",
         "</style>",
         "<script>",
         f"const TWEETS = {tweets_json};",
@@ -519,6 +600,13 @@ def html(
         "}",
         "function isValidAvatarUrl(url) {",
         "  return url && url.startsWith('https://pbs.twimg.com/');",
+        "}",
+        "function setTheme(theme) {",
+        "  document.documentElement.dataset.theme = theme;",
+        "  localStorage.setItem('tweethoarder-theme', theme);",
+        "  document.querySelectorAll('#theme-switcher button').forEach(btn => {",
+        "    btn.classList.toggle('active', btn.dataset.theme === theme);",
+        "  });",
         "}",
         "let imagesEnabled = false;",
         "function renderMedia(mediaJson) {",
@@ -683,11 +771,17 @@ def html(
         "      }).join('');",
         "      const badges = renderTypeBadges(t.collection_types);",
         "      return `<article class='thread'>",
-        "        ${av}",
-        "        <p><strong>🧵 Thread by ${escapeHtml(dn)}</strong> "
-        "@${escapeHtml(t.author_username)} ${badges}</p>",
-        "        ${threadHtml}",
-        '        <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',
+        "        <div class='tweet-container'>",
+        "          <div class='tweet-avatar-col'>",
+        "            ${av}",
+        "          </div>",
+        "          <div class='tweet-content-col'>",
+        "            <p>🧵 <span class='author-name'>Thread by ${escapeHtml(dn)}</span> "
+        "<span class='author-handle'>@${escapeHtml(t.author_username)}</span> ${badges}</p>",
+        "            ${threadHtml}",
+        '            <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',
+        "          </div>",
+        "        </div>",
         "      </article>`;",
         "    }",
         "    const richTxt = applyRichtext(t.text, t.richtext_tags);",
@@ -706,13 +800,19 @@ def html(
         "    const badges = renderTypeBadges(t.collection_types);",
         "    return `<article>",
         "      ${rtHeader}",
-        "      ${av}",
-        "      <p><strong>${escapeHtml(dn)}</strong> @${escapeHtml(t.author_username)} "
-        "${badges}</p>",
-        "      <p>${formatNewlines(linkifyMentions(linkifyUrls(txt)))}</p>",
-        "      ${renderMedia(t.media_json)}",
-        "      ${qtHtml}",
-        '      <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',
+        "      <div class='tweet-container'>",
+        "        <div class='tweet-avatar-col'>",
+        "          ${av}",
+        "        </div>",
+        "        <div class='tweet-content-col'>",
+        "          <p><span class='author-name'>${escapeHtml(dn)}</span> "
+        "<span class='author-handle'>@${escapeHtml(t.author_username)}</span> ${badges}</p>",
+        "          <p>${formatNewlines(linkifyMentions(linkifyUrls(txt)))}</p>",
+        "          ${renderMedia(t.media_json)}",
+        "          ${qtHtml}",
+        '          <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',
+        "        </div>",
+        "      </div>",
         "    </article>`;",
         "  }).join('');",
         "}",
@@ -775,6 +875,12 @@ def html(
         "    loadBtn.textContent = 'Images Enabled';",
         "    applyAllFilters();",
         "  });",
+        "  const themeSwitcher = document.getElementById('theme-switcher');",
+        "  themeSwitcher.addEventListener('click', (e) => {",
+        "    if (e.target.dataset.theme) setTheme(e.target.dataset.theme);",
+        "  });",
+        "  const savedTheme = localStorage.getItem('tweethoarder-theme') || 'dark';",
+        "  setTheme(savedTheme);",
         "  renderTypeList();",
         "  renderAuthorList('');",
         "  applyAllFilters();",
@@ -783,6 +889,12 @@ def html(
         "</head>",
         "<body>",
         '<aside id="filters">',
+        "<h3>Theme</h3>",
+        '<div id="theme-switcher">',
+        '<button data-theme="dark">Lights Out</button>',
+        '<button data-theme="dim">Dim</button>',
+        '<button data-theme="light">Light</button>',
+        "</div>",
         "<h3>Search</h3>",
         '<input type="search" id="search" placeholder="Search tweet content...">',
         "<h3>Type</h3>",
