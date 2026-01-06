@@ -352,6 +352,31 @@ def html(
     if repost_ids_to_remove:
         tweets = [t for t in tweets if t["id"] not in repost_ids_to_remove]
 
+    # Deduplicate tweets from the same thread (same conversation_id)
+    # Keep only one entry per thread, but track all highlighted tweet IDs
+    seen_conversations: dict[str, dict[str, Any]] = {}
+    deduplicated_tweets: list[dict[str, Any]] = []
+
+    for tweet in tweets:
+        conv_id = tweet.get("conversation_id")
+        if conv_id and conv_id in seen_conversations:
+            # Same thread - add this tweet's ID to highlighted_tweet_ids
+            seen_conversations[conv_id]["highlighted_tweet_ids"].append(tweet["id"])
+            # Merge collection_types
+            existing_types = seen_conversations[conv_id].get("collection_types", [])
+            for ct in tweet.get("collection_types", []):
+                if ct not in existing_types:
+                    existing_types.append(ct)
+            seen_conversations[conv_id]["collection_types"] = existing_types
+        else:
+            # New thread or standalone tweet
+            tweet["highlighted_tweet_ids"] = [tweet["id"]]
+            deduplicated_tweets.append(tweet)
+            if conv_id:
+                seen_conversations[conv_id] = tweet
+
+    tweets = deduplicated_tweets
+
     # Strip unused fields to reduce HTML size
     used_fields = {
         "id",
@@ -369,6 +394,7 @@ def html(
         "quoted_tweet_id",
         "richtext_tags",
         "collection_types",
+        "highlighted_tweet_ids",
     }
     stripped_tweets = [{k: v for k, v in t.items() if k in used_fields} for t in tweets]
     # Include quoted tweets separately for TWEETS_MAP lookup only
@@ -844,7 +870,7 @@ def html(
         "    const threadHtml = threadTweets.map(th => {",
         "      const richTxt = applyRichtext(th.text, th.richtext_tags);",
         "      const txt = expandUrls(richTxt, th.urls_json);",
-        "      const star = th.id === t.id ? '\\u2B50 ' : '';",
+        "      const star = (t.highlighted_tweet_ids || []).includes(th.id) ? '\\u2B50 ' : '';",
         "      return `<p>${star}${formatNewlines(linkifyMentions(linkifyUrls(txt)))}</p>`;",
         "    }).join('');",
         "    const badges = renderTypeBadges(t.collection_types);",

@@ -1740,3 +1740,66 @@ def test_html_export_keeps_repost_when_original_not_in_collection(tmp_path: Path
         assert len(tweets) == 1
         assert tweets[0]["id"] == "2001"
         assert tweets[0]["collection_types"] == ["repost"]
+
+
+def test_html_export_deduplicates_tweets_from_same_thread(tmp_path: Path) -> None:
+    """HTML export should show thread only once when multiple tweets from it are liked."""
+    # User liked tweets 3/, 5/, 8/ from the same thread
+    mock_tweets = [
+        {
+            "id": "1003",
+            "text": "3/ Third tweet in thread",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:02:00Z",
+            "conversation_id": "1001",
+        },
+        {
+            "id": "1005",
+            "text": "5/ Fifth tweet in thread",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:04:00Z",
+            "conversation_id": "1001",
+        },
+        {
+            "id": "1008",
+            "text": "8/ Eighth tweet in thread",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:07:00Z",
+            "conversation_id": "1001",
+        },
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = mock_tweets  # Thread context returns same tweets
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        import json
+        import re
+
+        tweets_match = re.search(r"const TWEETS = (\[.*?\]);", content, re.DOTALL)
+        assert tweets_match is not None
+
+        tweets = json.loads(tweets_match.group(1))
+
+        # Should have only 1 entry (deduplicated by conversation_id)
+        assert len(tweets) == 1
+        # Should have all three liked tweet IDs tracked
+        assert set(tweets[0]["highlighted_tweet_ids"]) == {"1003", "1005", "1008"}
