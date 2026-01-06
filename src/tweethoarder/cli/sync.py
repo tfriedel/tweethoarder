@@ -19,7 +19,6 @@ from rich.progress import (
 )
 
 from tweethoarder.auth.cookies import resolve_cookies
-from tweethoarder.cli.thread import fetch_thread_async
 from tweethoarder.client.base import TwitterClient
 from tweethoarder.client.timelines import (
     extract_quoted_tweet,
@@ -34,13 +33,14 @@ from tweethoarder.storage.checkpoint import SyncCheckpoint
 from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
 from tweethoarder.sync.sort_index import SortIndexGenerator
 
-# Delay between thread fetches to avoid rate limiting (in seconds)
-# Twitter's TweetDetail endpoint allows ~50-100 requests per 15 minutes
-# 15 min = 900s, so ~10s between requests is safe
-# currently at 1sec, because for small batches it's okay.
-# TODO: We should optimize this later, with maybe some dynamic throttling.
-# We should benchmark this with a test account.
-THREAD_FETCH_DELAY = 1.0
+# Adaptive delay settings for thread fetches
+# Start with minimal delay and increase on rate limit errors
+THREAD_FETCH_INITIAL_DELAY = 0.2  # Start fast
+THREAD_FETCH_MAX_DELAY = 60.0  # Cap the delay at 60s
+THREAD_FETCH_DELAY_MULTIPLIER = 2.0  # Double delay on 429
+THREAD_FETCH_SUCCESS_STREAK_RESET = 5  # Reset delay after N consecutive successes
+THREAD_FETCH_RATE_LIMIT_COOLDOWN = 300.0  # 5 min cooldown after consecutive 429s
+THREAD_FETCH_CONSECUTIVE_429_THRESHOLD = 3  # Trigger cooldown after this many 429s
 
 
 def create_sync_progress() -> Progress:
@@ -59,11 +59,106 @@ def create_sync_progress() -> Progress:
 
 
 def needs_thread_fetch(tweet_data: dict[str, Any]) -> bool:
-    """Check if a tweet needs thread context fetched (is a reply or part of conversation)."""
-    if tweet_data.get("in_reply_to_tweet_id"):
-        return True
-    conv_id = tweet_data.get("conversation_id")
-    return conv_id is not None and conv_id != tweet_data.get("id")
+    """Check if tweet is part of a thread (self-reply only).
+
+    Only returns True when the author is replying to themselves, which indicates
+    a thread/tweetstorm. Replies to other users are not fetched since the thread
+    filter would discard the actual thread content anyway.
+    """
+    reply_to_user = tweet_data.get("in_reply_to_user_id")
+    if not reply_to_user:
+        return False
+    # Only fetch if author is replying to themselves (thread continuation)
+    return bool(reply_to_user == tweet_data.get("author_id"))
+
+
+async def fetch_threads_with_adaptive_delay(
+    db_path: Path,
+    tweet_ids: list[str],
+    thread_mode: str,
+    progress: Progress | None = None,
+) -> dict[str, int]:
+    """Fetch threads with adaptive rate limiting.
+
+    Starts with minimal delay and increases on rate limit errors.
+    On consecutive 429s, triggers a longer cooldown period.
+    Retries rate-limited requests after waiting.
+    """
+    from tweethoarder.cli.thread import fetch_thread_async
+
+    current_delay = THREAD_FETCH_INITIAL_DELAY
+    success_streak = 0
+    consecutive_429s = 0
+    fetched_count = 0
+    failed_count = 0
+
+    thread_task = progress.add_task("Fetching threads", total=len(tweet_ids)) if progress else None
+
+    i = 0
+    while i < len(tweet_ids):
+        tweet_id = tweet_ids[i]
+        try:
+            await fetch_thread_async(db_path=db_path, tweet_id=tweet_id, mode=thread_mode)
+            fetched_count += 1
+            success_streak += 1
+            consecutive_429s = 0
+
+            # Reset delay after consecutive successes
+            if success_streak >= THREAD_FETCH_SUCCESS_STREAK_RESET:
+                current_delay = THREAD_FETCH_INITIAL_DELAY
+                success_streak = 0
+
+            if progress and thread_task is not None:
+                progress.update(thread_task, completed=i + 1)
+            i += 1
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                consecutive_429s += 1
+                success_streak = 0
+
+                if consecutive_429s >= THREAD_FETCH_CONSECUTIVE_429_THRESHOLD:
+                    # Too many 429s - enter cooldown
+                    typer.echo(
+                        f"\nHit rate limit {consecutive_429s}x, "
+                        f"cooling down for {THREAD_FETCH_RATE_LIMIT_COOLDOWN / 60:.0f} min..."
+                    )
+                    await asyncio.sleep(THREAD_FETCH_RATE_LIMIT_COOLDOWN)
+                    current_delay = THREAD_FETCH_INITIAL_DELAY
+                    consecutive_429s = 0
+                    # Retry same tweet (don't increment i)
+                    continue
+
+                # Increase delay and retry
+                current_delay = min(
+                    current_delay * THREAD_FETCH_DELAY_MULTIPLIER, THREAD_FETCH_MAX_DELAY
+                )
+                typer.echo(f"Rate limited, waiting {current_delay}s...")
+                await asyncio.sleep(current_delay)
+                # Retry same tweet (don't increment i)
+                continue
+            else:
+                # Other HTTP error - skip this tweet
+                typer.echo(f"HTTP error {e.response.status_code} for {tweet_id}, skipping")
+                failed_count += 1
+                if progress and thread_task is not None:
+                    progress.update(thread_task, completed=i + 1)
+                i += 1
+
+        except Exception as e:
+            # Other errors - log and continue
+            typer.echo(f"Failed to fetch thread for {tweet_id}: {e}")
+            failed_count += 1
+            success_streak = 0
+            if progress and thread_task is not None:
+                progress.update(thread_task, completed=i + 1)
+            i += 1
+
+        # Add delay before next request (except for last one)
+        if i < len(tweet_ids):
+            await asyncio.sleep(current_delay)
+
+    return {"fetched_count": fetched_count, "failed_count": failed_count}
 
 
 app = typer.Typer(
@@ -125,7 +220,8 @@ async def sync_likes_async(
     cursor: str | None = saved_checkpoint.cursor if saved_checkpoint else None
     last_tweet_id: str | None = None
     synced_tweet_ids: list[str] = []
-    tweets_needing_threads: list[str] = []
+    # Deduplicate thread fetches by conversation_id to avoid redundant API calls
+    threads_by_conv_id: dict[str, str] = {}  # conversation_id -> tweet_id
 
     # Initialize sort index generator (uses checkpoint or derives from existing data)
     sort_gen = SortIndexGenerator.from_checkpoint_or_db(checkpoint, "like", db_path)
@@ -174,7 +270,9 @@ async def sync_likes_async(
                 last_tweet_id = tweet_data["id"]
                 synced_tweet_ids.append(tweet_data["id"])
                 if needs_thread_fetch(tweet_data):
-                    tweets_needing_threads.append(tweet_data["id"])
+                    conv_id = tweet_data.get("conversation_id") or tweet_data["id"]
+                    if conv_id not in threads_by_conv_id:
+                        threads_by_conv_id[conv_id] = tweet_data["id"]
                 synced_count += 1
                 if progress and sync_task is not None:
                     progress.update(sync_task, completed=synced_count)
@@ -195,19 +293,11 @@ async def sync_likes_async(
     checkpoint.clear("like")
 
     # Fetch threads only for tweets that are part of a conversation
+    tweets_needing_threads = list(threads_by_conv_id.values())
     if with_threads and tweets_needing_threads:
-        thread_task = (
-            progress.add_task("Fetching threads", total=len(tweets_needing_threads))
-            if progress
-            else None
+        await fetch_threads_with_adaptive_delay(
+            db_path, tweets_needing_threads, thread_mode, progress
         )
-        for i, tweet_id in enumerate(tweets_needing_threads):
-            await fetch_thread_async(db_path=db_path, tweet_id=tweet_id, mode=thread_mode)
-            if progress and thread_task is not None:
-                progress.update(thread_task, completed=i + 1)
-            # Add delay to avoid rate limiting
-            if i < len(tweets_needing_threads) - 1:
-                await asyncio.sleep(THREAD_FETCH_DELAY)
 
     return {"synced_count": synced_count}
 
@@ -280,7 +370,8 @@ async def sync_bookmarks_async(
     cursor: str | None = saved_checkpoint.cursor if saved_checkpoint else None
     last_tweet_id: str | None = None
     synced_tweet_ids: list[str] = []
-    tweets_needing_threads: list[str] = []
+    # Deduplicate thread fetches by conversation_id to avoid redundant API calls
+    threads_by_conv_id: dict[str, str] = {}  # conversation_id -> tweet_id
 
     # Initialize sort index generator (uses checkpoint or derives from existing data)
     sort_gen = SortIndexGenerator.from_checkpoint_or_db(checkpoint, "bookmark", db_path)
@@ -327,7 +418,9 @@ async def sync_bookmarks_async(
                     last_tweet_id = tweet_data["id"]
                     synced_tweet_ids.append(tweet_data["id"])
                     if needs_thread_fetch(tweet_data):
-                        tweets_needing_threads.append(tweet_data["id"])
+                        conv_id = tweet_data.get("conversation_id") or tweet_data["id"]
+                        if conv_id not in threads_by_conv_id:
+                            threads_by_conv_id[conv_id] = tweet_data["id"]
                     synced_count += 1
                     if progress and sync_task is not None:
                         progress.update(sync_task, completed=synced_count)
@@ -348,19 +441,11 @@ async def sync_bookmarks_async(
     checkpoint.clear("bookmark")
 
     # Fetch threads only for tweets that are part of a conversation
+    tweets_needing_threads = list(threads_by_conv_id.values())
     if with_threads and tweets_needing_threads:
-        thread_task = (
-            progress.add_task("Fetching threads", total=len(tweets_needing_threads))
-            if progress
-            else None
+        await fetch_threads_with_adaptive_delay(
+            db_path, tweets_needing_threads, thread_mode, progress
         )
-        for i, tweet_id in enumerate(tweets_needing_threads):
-            await fetch_thread_async(db_path=db_path, tweet_id=tweet_id, mode=thread_mode)
-            if progress and thread_task is not None:
-                progress.update(thread_task, completed=i + 1)
-            # Add delay to avoid rate limiting
-            if i < len(tweets_needing_threads) - 1:
-                await asyncio.sleep(THREAD_FETCH_DELAY)
 
     return {"synced_count": synced_count}
 
@@ -502,9 +587,8 @@ async def sync_tweets_async(
     checkpoint.clear("tweet")
 
     # Fetch threads for all synced tweets if enabled
-    if with_threads:
-        for tweet_id in synced_tweet_ids:
-            await fetch_thread_async(db_path=db_path, tweet_id=tweet_id, mode=thread_mode)
+    if with_threads and synced_tweet_ids:
+        await fetch_threads_with_adaptive_delay(db_path, synced_tweet_ids, thread_mode, progress)
 
     return {"synced_count": synced_count}
 
@@ -640,9 +724,8 @@ async def sync_reposts_async(
     checkpoint.clear("repost")
 
     # Fetch threads for all synced tweets if enabled
-    if with_threads:
-        for tweet_id in synced_tweet_ids:
-            await fetch_thread_async(db_path=db_path, tweet_id=tweet_id, mode=thread_mode)
+    if with_threads and synced_tweet_ids:
+        await fetch_threads_with_adaptive_delay(db_path, synced_tweet_ids, thread_mode, progress)
 
     return {"synced_count": synced_count}
 
@@ -803,7 +886,7 @@ async def sync_replies_async(
                     if parent_data:
                         save_tweet(db_path, parent_data)
                 # Add delay to avoid rate limiting
-                await asyncio.sleep(THREAD_FETCH_DELAY)
+                await asyncio.sleep(THREAD_FETCH_INITIAL_DELAY)
             except httpx.HTTPStatusError:
                 # Parent tweet may be deleted or unavailable
                 pass
@@ -812,9 +895,8 @@ async def sync_replies_async(
     checkpoint.clear("reply")
 
     # Fetch threads for all synced tweets if enabled
-    if with_threads:
-        for tweet_id in synced_tweet_ids:
-            await fetch_thread_async(db_path=db_path, tweet_id=tweet_id, mode=thread_mode)
+    if with_threads and synced_tweet_ids:
+        await fetch_threads_with_adaptive_delay(db_path, synced_tweet_ids, thread_mode, progress)
 
     return {"synced_count": synced_count}
 
@@ -1008,3 +1090,72 @@ def posts(
         )
 
     typer.echo(f"Synced {result['tweets_count']} tweets, {result['reposts_count']} reposts.")
+
+
+@app.command()
+def threads(
+    thread_mode: str = typer.Option(
+        "thread", "--thread-mode", help="Thread mode: thread (author only) or conversation."
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Fetch threads even if we might already have them."
+    ),
+) -> None:
+    """Fetch thread context for existing tweets in the database.
+
+    Finds self-reply tweets (threads) that may be missing context and fetches
+    the full thread. By default, skips conversations where we already have
+    multiple tweets (likely already fetched). Use --force to fetch all.
+    """
+    import asyncio
+    import sqlite3
+
+    from tweethoarder.config import get_data_dir
+
+    db_path = get_data_dir() / "tweethoarder.db"
+
+    # Find self-reply tweets (threads) that need fetching
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+
+    if force:
+        # Fetch all self-reply tweets, deduplicated by conversation_id
+        cursor = conn.execute("""
+            SELECT DISTINCT conversation_id, id as tweet_id
+            FROM tweets
+            WHERE in_reply_to_user_id IS NOT NULL
+              AND in_reply_to_user_id = author_id
+              AND conversation_id IS NOT NULL
+            GROUP BY conversation_id
+        """)
+    else:
+        # Fetch threads where a self-reply's parent tweet is missing from the DB
+        cursor = conn.execute("""
+            SELECT DISTINCT t.conversation_id, t.id as tweet_id
+            FROM tweets t
+            WHERE t.in_reply_to_user_id IS NOT NULL
+              AND t.in_reply_to_user_id = t.author_id
+              AND t.in_reply_to_tweet_id IS NOT NULL
+              AND t.in_reply_to_tweet_id NOT IN (SELECT id FROM tweets)
+        """)
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        typer.echo("No threads need fetching.")
+        return
+
+    tweet_ids = [row["tweet_id"] for row in rows]
+    typer.echo(f"Found {len(tweet_ids)} threads to fetch.")
+
+    with create_sync_progress() as progress:
+        result = asyncio.run(
+            fetch_threads_with_adaptive_delay(db_path, tweet_ids, thread_mode, progress)
+        )
+
+    typer.echo(
+        f"Fetched {result['fetched_count']} threads"
+        + (f", {result['failed_count']} failed" if result["failed_count"] else "")
+        + "."
+    )

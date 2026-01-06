@@ -470,25 +470,36 @@ async def test_sync_likes_async_resumes_from_checkpoint(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_sync_likes_async_fetches_threads_for_conversation_tweets(tmp_path: Path) -> None:
-    """sync_likes_async should fetch threads only for tweets that are part of conversations."""
+async def test_sync_likes_async_fetches_threads_for_self_reply_tweets(tmp_path: Path) -> None:
+    """sync_likes_async should fetch threads only for self-reply tweets (threads)."""
     from unittest.mock import AsyncMock, MagicMock, patch
 
     from tweethoarder.cli.sync import sync_likes_async
 
     db_path = tmp_path / "test.db"
-    # Create response with 3 tweets - 2 are replies (need threads), 1 is standalone
-    reply_entry_1 = _make_tweet_entry("111", "First reply")
-    reply_entry_1["content"]["itemContent"]["tweet_results"]["result"]["legacy"][
+    # Create response with 3 tweets:
+    # - 1 self-reply (author replies to themselves = thread) - needs thread fetch
+    # - 1 reply to other user - does NOT need thread fetch (would be filtered anyway)
+    # - 1 standalone tweet - does NOT need thread fetch
+    self_reply_entry = _make_tweet_entry("111", "Thread continuation")
+    self_reply_entry["content"]["itemContent"]["tweet_results"]["result"]["legacy"][
         "in_reply_to_status_id_str"
     ] = "000"
-    reply_entry_2 = _make_tweet_entry("222", "Second reply")
-    reply_entry_2["content"]["itemContent"]["tweet_results"]["result"]["legacy"][
+    self_reply_entry["content"]["itemContent"]["tweet_results"]["result"]["legacy"][
+        "in_reply_to_user_id_str"
+    ] = "456"  # Same as author_id in _make_tweet_entry
+
+    reply_to_other_entry = _make_tweet_entry("222", "Reply to someone else")
+    reply_to_other_entry["content"]["itemContent"]["tweet_results"]["result"]["legacy"][
         "in_reply_to_status_id_str"
     ] = "000"
+    reply_to_other_entry["content"]["itemContent"]["tweet_results"]["result"]["legacy"][
+        "in_reply_to_user_id_str"
+    ] = "999"  # Different from author_id
+
     standalone_entry = _make_tweet_entry("333", "Standalone tweet")
 
-    mock_response = _make_likes_response([reply_entry_1, reply_entry_2, standalone_entry])
+    mock_response = _make_likes_response([self_reply_entry, reply_to_other_entry, standalone_entry])
 
     mock_http_response = MagicMock()
     mock_http_response.json.return_value = mock_response
@@ -500,16 +511,16 @@ async def test_sync_likes_async_fetches_threads_for_conversation_tweets(tmp_path
             mock_client = AsyncMock()
             mock_client.get.return_value = mock_http_response
             mock_client_cls.return_value.__aenter__.return_value = mock_client
-            with patch("tweethoarder.cli.sync.fetch_thread_async") as mock_fetch_thread:
+            with patch("tweethoarder.cli.thread.fetch_thread_async") as mock_fetch_thread:
                 mock_fetch_thread.return_value = {"tweet_count": 5}
 
                 await sync_likes_async(db_path=db_path, count=10, with_threads=True)
 
-                # Should be called 2 times - only for reply tweets, not standalone
-                assert mock_fetch_thread.call_count == 2
-                # Verify only reply tweet IDs were passed
+                # Should be called 1 time - only for self-reply tweet (thread)
+                assert mock_fetch_thread.call_count == 1
+                # Verify only self-reply tweet ID was passed
                 call_tweet_ids = [call[1]["tweet_id"] for call in mock_fetch_thread.call_args_list]
-                assert set(call_tweet_ids) == {"111", "222"}
+                assert call_tweet_ids == ["111"]
 
 
 def test_sync_likes_async_accepts_store_raw_parameter() -> None:

@@ -394,7 +394,7 @@ async def test_sync_reposts_async_fetches_threads_for_all_synced_tweets(tmp_path
         patch("tweethoarder.cli.sync.get_config_dir") as mock_config_dir,
         patch("tweethoarder.cli.sync.get_query_id_with_fallback") as mock_get_query_id,
         patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_async_client,
-        patch("tweethoarder.cli.sync.fetch_thread_async") as mock_fetch_thread,
+        patch("tweethoarder.cli.thread.fetch_thread_async") as mock_fetch_thread,
     ):
         mock_cookies.return_value = {"twid": "u%3D789"}
         mock_client_class.return_value.get_base_headers.return_value = {}
