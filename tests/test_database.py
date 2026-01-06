@@ -848,3 +848,48 @@ def test_sync_progress_has_sort_index_counter_column(tmp_path: Path) -> None:
     conn.close()
 
     assert "sort_index_counter" in columns
+
+
+def test_get_all_tweets_with_collection_types(tmp_path: Path) -> None:
+    """get_all_tweets_with_collection_types should return tweets with their collection types."""
+    from tweethoarder.storage.database import (
+        add_to_collection,
+        get_all_tweets_with_collection_types,
+        init_database,
+        save_tweet,
+    )
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Create a tweet that's in both likes and bookmarks
+    tweet_data = {
+        "id": "123",
+        "text": "Multi-collection tweet",
+        "author_id": "user1",
+        "author_username": "testuser",
+        "created_at": "2025-01-01T12:00:00Z",
+    }
+    save_tweet(db_path, tweet_data)
+    add_to_collection(db_path, "123", "like")
+    add_to_collection(db_path, "123", "bookmark")
+
+    # Create a tweet that's only in likes
+    tweet_data2 = {
+        "id": "456",
+        "text": "Like-only tweet",
+        "author_id": "user2",
+        "author_username": "otheruser",
+        "created_at": "2025-01-02T12:00:00Z",
+    }
+    save_tweet(db_path, tweet_data2)
+    add_to_collection(db_path, "456", "like")
+
+    result = get_all_tweets_with_collection_types(db_path)
+
+    assert len(result) == 2
+    # Results ordered by created_at DESC, so 456 (Jan 2) comes first
+    assert result[0]["id"] == "456"
+    assert result[0]["collection_types"] == ["like"]
+    assert result[1]["id"] == "123"
+    assert sorted(result[1]["collection_types"]) == ["bookmark", "like"]

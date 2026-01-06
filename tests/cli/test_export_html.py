@@ -1097,3 +1097,172 @@ def test_html_export_has_filter_javascript_functions(tmp_path: Path) -> None:
         assert "author-list" in content
         assert "date-from" in content and "date-to" in content
         assert "clear-filters" in content
+
+
+def test_html_export_collection_all_includes_collection_types(tmp_path: Path) -> None:
+    """HTML export with --collection all should include collection_types for each tweet."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Liked and bookmarked tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+            "collection_types": ["like", "bookmark"],
+        },
+        {
+            "id": "2",
+            "text": "My own tweet",
+            "author_id": "user2",
+            "author_username": "otheruser",
+            "created_at": "2025-01-02T12:00:00Z",
+            "collection_types": ["tweet"],
+        },
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_all_tweets_with_collection_types") as mock_get_all,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_all.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "all", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have collection_types in the JSON
+        assert "collection_types" in content
+        assert '"like"' in content
+        assert '"bookmark"' in content
+        assert '"tweet"' in content
+
+
+def test_html_export_collection_all_has_type_filter_ui(tmp_path: Path) -> None:
+    """HTML export with --collection all should have type filter checkboxes."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Liked tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+            "collection_types": ["like"],
+        },
+        {
+            "id": "2",
+            "text": "Bookmarked tweet",
+            "author_id": "user2",
+            "author_username": "otheruser",
+            "created_at": "2025-01-02T12:00:00Z",
+            "collection_types": ["bookmark"],
+        },
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_all_tweets_with_collection_types") as mock_get_all,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_all.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "all", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have type filter section
+        assert "type-list" in content or "Type" in content
+        # Should have collection type counts in facets
+        assert "types" in content
+
+
+def test_html_export_collection_all_has_type_filter_javascript(tmp_path: Path) -> None:
+    """HTML export with --collection all should have JavaScript for type filtering."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Liked tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+            "collection_types": ["like"],
+        },
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_all_tweets_with_collection_types") as mock_get_all,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_all.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "all", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have selectedTypes state variable
+        assert "selectedTypes" in content
+        # Should have renderTypeList function
+        assert "renderTypeList" in content
+
+
+def test_html_export_collection_all_has_type_badges(tmp_path: Path) -> None:
+    """HTML export with --collection all should render type badges for tweets."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Liked tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+            "collection_types": ["like"],
+        },
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_all_tweets_with_collection_types") as mock_get_all,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_all.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "all", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have renderTypeBadges function
+        assert "renderTypeBadges" in content
+        # Should have TYPE_ICONS constant
+        assert "TYPE_ICONS" in content

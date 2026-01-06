@@ -469,3 +469,37 @@ def get_min_sort_index(db_path: Path, collection_type: str) -> str | None:
         )
         row = cursor.fetchone()
         return row[0] if row and row[0] else None
+
+
+def get_all_tweets_with_collection_types(db_path: Path) -> list[dict[str, Any]]:
+    """Get all tweets with their collection types.
+
+    Args:
+        db_path: Path to the SQLite database file.
+
+    Returns:
+        List of tweet dictionaries with an added 'collection_types' field
+        containing a list of collection types the tweet belongs to.
+        Ordered by created_at (most recent first).
+    """
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        # Get all tweets with their collection types using GROUP_CONCAT
+        cursor = conn.execute(
+            """
+            SELECT t.*, GROUP_CONCAT(c.collection_type) as collection_types_str
+            FROM tweets t
+            JOIN collections c ON t.id = c.tweet_id
+            GROUP BY t.id
+            ORDER BY t.created_at DESC
+            """
+        )
+        rows = cursor.fetchall()
+        result = []
+        for row in rows:
+            tweet = dict(row)
+            # Convert comma-separated string to list
+            types_str = tweet.pop("collection_types_str")
+            tweet["collection_types"] = types_str.split(",") if types_str else []
+            result.append(tweet)
+        return result
