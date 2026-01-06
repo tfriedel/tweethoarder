@@ -325,6 +325,33 @@ def html(
         if richtext_tags:
             tweet["richtext_tags"] = richtext_tags
 
+    # Deduplicate: merge repost entries with their original tweets if both exist
+    # When we have both a repost (is_retweet=True, retweeted_tweet_id=X) and
+    # the original tweet (id=X) in our collection, merge them into one entry
+    tweet_by_id = {t["id"]: t for t in tweets}
+    repost_ids_to_remove: set[str] = set()
+
+    for tweet in tweets:
+        if tweet.get("is_retweet") and tweet.get("retweeted_tweet_id"):
+            original_id = tweet["retweeted_tweet_id"]
+            if original_id in tweet_by_id:
+                # Original tweet exists in our collection - merge collection types
+                original_tweet = tweet_by_id[original_id]
+                repost_types = tweet.get("collection_types", [])
+                original_types = original_tweet.get("collection_types", [])
+                # Merge collection types (avoiding duplicates)
+                merged_types = list(original_types)
+                for ct in repost_types:
+                    if ct not in merged_types:
+                        merged_types.append(ct)
+                original_tweet["collection_types"] = merged_types
+                # Mark this repost entry for removal
+                repost_ids_to_remove.add(tweet["id"])
+
+    # Remove merged repost entries
+    if repost_ids_to_remove:
+        tweets = [t for t in tweets if t["id"] not in repost_ids_to_remove]
+
     # Strip unused fields to reduce HTML size
     used_fields = {
         "id",
