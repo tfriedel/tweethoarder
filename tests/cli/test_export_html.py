@@ -1609,3 +1609,134 @@ def test_html_export_twitter_font_stack(tmp_path: Path) -> None:
         assert "-apple-system" in content
         assert "BlinkMacSystemFont" in content
         assert "Segoe UI" in content
+
+
+def test_html_export_deduplicates_repost_and_liked_original(tmp_path: Path) -> None:
+    """HTML export should deduplicate when a repost and the original liked tweet both appear.
+
+    When the same underlying tweet appears both as:
+    1. A repost (is_retweet=True, retweeted_tweet_id=X) in the repost collection
+    2. The original tweet (id=X) in the like collection
+
+    They should be merged into ONE entry showing both collection badges.
+    """
+    # Original tweet that was liked
+    original_tweet = {
+        "id": "1001",
+        "text": "Original tweet content",
+        "author_id": "author1",
+        "author_username": "originalauthor",
+        "author_display_name": "Original Author",
+        "created_at": "2025-01-01T12:00:00Z",
+        "is_retweet": False,
+        "collection_types": ["like"],
+    }
+    # Repost of that same tweet
+    repost_tweet = {
+        "id": "2001",
+        "text": "Original tweet content",
+        "author_id": "author1",
+        "author_username": "originalauthor",
+        "author_display_name": "Original Author",
+        "created_at": "2025-01-02T14:00:00Z",
+        "is_retweet": True,
+        "retweeted_tweet_id": "1001",  # Points to the original
+        "collection_types": ["repost"],
+    }
+
+    mock_tweets = [repost_tweet, original_tweet]  # Repost comes first by created_at
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_all_tweets_with_collection_types") as mock_get_all,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_all.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "all", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Parse the TWEETS JSON from the HTML to verify deduplication
+        import json
+        import re
+
+        # Extract the TWEETS array from JavaScript
+        tweets_match = re.search(r"const TWEETS = (\[.*?\]);", content, re.DOTALL)
+        assert tweets_match is not None, "Should find TWEETS array in HTML"
+
+        tweets_json = tweets_match.group(1)
+        tweets = json.loads(tweets_json)
+
+        # Should have only 1 tweet (deduplicated), not 2
+        assert len(tweets) == 1, f"Expected 1 deduplicated tweet, got {len(tweets)}"
+
+        # The deduplicated tweet should be the original (not the repost shell)
+        deduped = tweets[0]
+        assert deduped["id"] == "1001", "Should use the original tweet ID"
+
+        # Should have both collection types merged
+        collection_types = deduped.get("collection_types", [])
+        assert "like" in collection_types, "Should have 'like' collection type"
+        assert "repost" in collection_types, "Should have 'repost' collection type"
+
+
+def test_html_export_keeps_repost_when_original_not_in_collection(tmp_path: Path) -> None:
+    """HTML export should keep repost entries when the original tweet isn't in any collection.
+
+    When we only have a repost (no liked/bookmarked original), it should remain as-is.
+    """
+    # Repost where the original tweet is NOT in our collection
+    repost_tweet = {
+        "id": "2001",
+        "text": "Some other content",
+        "author_id": "author1",
+        "author_username": "originalauthor",
+        "author_display_name": "Original Author",
+        "created_at": "2025-01-02T14:00:00Z",
+        "is_retweet": True,
+        "retweeted_tweet_id": "9999",  # Original not in collection
+        "collection_types": ["repost"],
+    }
+
+    mock_tweets = [repost_tweet]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_all_tweets_with_collection_types") as mock_get_all,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_all.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "all", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        import json
+        import re
+
+        tweets_match = re.search(r"const TWEETS = (\[.*?\]);", content, re.DOTALL)
+        assert tweets_match is not None
+
+        tweets = json.loads(tweets_match.group(1))
+
+        # Should still have 1 tweet (the repost was kept)
+        assert len(tweets) == 1
+        assert tweets[0]["id"] == "2001"
+        assert tweets[0]["collection_types"] == ["repost"]
