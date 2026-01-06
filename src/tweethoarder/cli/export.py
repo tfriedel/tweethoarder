@@ -353,13 +353,23 @@ def html(
         tweets = [t for t in tweets if t["id"] not in repost_ids_to_remove]
 
     # Deduplicate tweets from the same thread (same conversation_id)
+    # Only deduplicate self-reply threads (where author replies to themselves)
     # Keep only one entry per thread, but track all highlighted tweet IDs
+    def is_self_reply_thread_tweet(t: dict[str, Any]) -> bool:
+        """Check if tweet is part of a self-reply thread (not a reply to someone else)."""
+        reply_to_user = t.get("in_reply_to_user_id")
+        author_id = t.get("author_id")
+        # Thread start (no reply_to_user) or self-reply (same user)
+        return reply_to_user is None or reply_to_user == author_id
+
     seen_conversations: dict[str, dict[str, Any]] = {}
     deduplicated_tweets: list[dict[str, Any]] = []
 
     for tweet in tweets:
         conv_id = tweet.get("conversation_id")
-        if conv_id and conv_id in seen_conversations:
+        # Only deduplicate if this is part of a self-reply thread
+        is_thread_tweet = is_self_reply_thread_tweet(tweet)
+        if conv_id and is_thread_tweet and conv_id in seen_conversations:
             # Same thread - add this tweet's ID to highlighted_tweet_ids
             seen_conversations[conv_id]["highlighted_tweet_ids"].append(tweet["id"])
             # Merge collection_types
@@ -369,10 +379,10 @@ def html(
                     existing_types.append(ct)
             seen_conversations[conv_id]["collection_types"] = existing_types
         else:
-            # New thread or standalone tweet
+            # New thread, standalone tweet, or reply to someone else's comment
             tweet["highlighted_tweet_ids"] = [tweet["id"]]
             deduplicated_tweets.append(tweet)
-            if conv_id:
+            if conv_id and is_thread_tweet:
                 seen_conversations[conv_id] = tweet
 
     tweets = deduplicated_tweets
@@ -387,6 +397,8 @@ def html(
         "author_avatar_url",
         "created_at",
         "conversation_id",
+        "in_reply_to_tweet_id",
+        "in_reply_to_user_id",
         "urls_json",
         "media_json",
         "is_retweet",
@@ -820,11 +832,34 @@ def html(
         "  if (!convId || !THREAD_CONTEXT[convId]) return [];",
         "  const allTweets = THREAD_CONTEXT[convId];",
         "  const authorId = tweet.author_id;",
-        "  return allTweets.filter(t => {",
+        "  // Filter to only include self-replies (author's thread posts)",
+        "  const threadTweets = allTweets.filter(t => {",
         "    if (t.author_id !== authorId) return false;",
-        "    if (t.id === convId) return true;",
-        "    return !t.text.startsWith('@');",
-        "  }).sort((a,b) => a.created_at.localeCompare(b.created_at));",
+        "    // Thread start (no reply) or self-reply (replying to own tweet)",
+        "    return !t.in_reply_to_user_id || t.in_reply_to_user_id === authorId;",
+        "  });",
+        "  // Topological sort by reply chain (in_reply_to_tweet_id)",
+        "  const byId = new Map(threadTweets.map(t => [t.id, t]));",
+        "  const children = new Map();",
+        "  let root = null;",
+        "  threadTweets.forEach(t => {",
+        "    const parent = t.in_reply_to_tweet_id;",
+        "    if (!parent || !byId.has(parent)) { root = t; return; }",
+        "    if (!children.has(parent)) children.set(parent, []);",
+        "    children.get(parent).push(t);",
+        "  });",
+        "  // Walk chain from root",
+        "  const sorted = [];",
+        "  const queue = root ? [root] : [];",
+        "  while (queue.length > 0) {",
+        "    const current = queue.shift();",
+        "    sorted.push(current);",
+        "    const kids = children.get(current.id) || [];",
+        "    // Sort children by created_at as tiebreaker",
+        "    kids.sort((a,b) => a.created_at.localeCompare(b.created_at));",
+        "    queue.push(...kids);",
+        "  }",
+        "  return sorted;",
         "}",
         "// Virtual scrolling configuration",
         "const ESTIMATED_ROW_HEIGHT = 150;",
