@@ -403,6 +403,7 @@ def html(
         "<!DOCTYPE html>",
         "<html>",
         "<head>",
+        '<meta charset="utf-8">',
         "<style>",
         "body { font-family: sans-serif; display: flex; margin: 0; }",
         "#filters { width: 250px; padding: 1rem; border-right: 1px solid #ddd; }",
@@ -426,11 +427,14 @@ def html(
         "border: 1px solid #e1e8ed; border-radius: 8px; box-sizing: border-box; }",
         "#author-list { max-height: 200px; overflow-y: auto; border: 1px solid #e1e8ed; "
         "border-radius: 8px; margin-bottom: 8px; }",
-        "#author-list label { display: block; padding: 8px; cursor: pointer; "
-        "border-bottom: 1px solid #e1e8ed; font-size: 13px; }",
+        "#author-list label { display: flex; align-items: center; padding: 8px; "
+        "cursor: pointer; border-bottom: 1px solid #e1e8ed; font-size: 13px; gap: 4px; }",
         "#author-list label:last-child { border-bottom: none; }",
         "#author-list label:hover { background: #f7f9fa; }",
         "#author-list label.selected { background: #e8f5fd; }",
+        "#author-list .author-name { flex: 1; overflow: hidden; text-overflow: ellipsis; "
+        "white-space: nowrap; min-width: 0; }",
+        "#author-list .author-count { flex-shrink: 0; color: #657786; }",
         "#filters button { width: 100%; padding: 8px; margin-top: 8px; "
         "border: 1px solid #e1e8ed; border-radius: 8px; cursor: pointer; "
         "background: #fff; }",
@@ -551,10 +555,15 @@ def html(
         "    checkbox.type = 'checkbox';",
         "    checkbox.value = a.username;",
         "    checkbox.checked = selectedAuthors.has(a.username);",
-        "    const text = document.createTextNode(",
-        "      ' ' + a.display_name + ' (@' + a.username + ') - ' + a.count);",
+        "    const nameSpan = document.createElement('span');",
+        "    nameSpan.className = 'author-name';",
+        "    nameSpan.textContent = a.display_name + ' (@' + a.username + ')';",
+        "    const countSpan = document.createElement('span');",
+        "    countSpan.className = 'author-count';",
+        "    countSpan.textContent = a.count;",
         "    label.appendChild(checkbox);",
-        "    label.appendChild(text);",
+        "    label.appendChild(nameSpan);",
+        "    label.appendChild(countSpan);",
         "    list.appendChild(label);",
         "  });",
         "}",
