@@ -82,6 +82,7 @@ COLLECTION_MAP = {
     "reposts": "repost",
     "replies": "reply",
     "posts": ["tweet", "repost"],  # Combined collection (replies not available via API)
+    "all": "all",  # Export all tweets with collection types
 }
 
 
@@ -227,7 +228,7 @@ def html(
     collection: str | None = typer.Option(
         None,
         "--collection",
-        help="Filter by collection type (likes, bookmarks, tweets, reposts, replies, posts).",
+        help="Filter by collection type (likes, bookmarks, tweets, reposts, replies, posts, all).",
     ),
     folder: str | None = typer.Option(
         None,
@@ -244,6 +245,7 @@ def html(
     from tweethoarder.config import get_data_dir
     from tweethoarder.storage.database import (
         get_all_tweets,
+        get_all_tweets_with_collection_types,
         get_tweets_by_bookmark_folder,
         get_tweets_by_collection,
         get_tweets_by_collections,
@@ -256,7 +258,9 @@ def html(
     collection_type = COLLECTION_MAP.get(collection, collection) if collection else None
 
     tweets: list[dict[str, Any]]
-    if folder and collection_type == "bookmark":
+    if collection_type == "all":
+        tweets = get_all_tweets_with_collection_types(db_path)
+    elif folder and collection_type == "bookmark":
         tweets = get_tweets_by_bookmark_folder(db_path, folder)
     elif isinstance(collection_type, list):
         tweets = get_tweets_by_collections(db_path, collection_type)
@@ -337,6 +341,7 @@ def html(
         "retweeter_username",
         "quoted_tweet_id",
         "richtext_tags",
+        "collection_types",
     }
     stripped_tweets = [{k: v for k, v in t.items() if k in used_fields} for t in tweets]
     # Include quoted tweets separately for TWEETS_MAP lookup only
@@ -348,6 +353,7 @@ def html(
     author_data: dict[str, dict[str, str | int]] = {}
     month_counts: Counter[str] = Counter()
     media_counts = {"photo": 0, "video": 0, "link": 0, "text_only": 0}
+    type_counts: Counter[str] = Counter()
 
     for tweet in tweets:
         username = tweet.get("author_username", "unknown")
@@ -380,10 +386,16 @@ def html(
         if not has_media:
             media_counts["text_only"] += 1
 
+        # Count collection types
+        collection_types = tweet.get("collection_types", [])
+        for ct in collection_types:
+            type_counts[ct] += 1
+
     facets = {
         "authors": sorted(author_data.values(), key=lambda x: -int(x["count"])),
         "months": [{"month": m, "count": c} for m, c in sorted(month_counts.items())],
         "media": media_counts,
+        "types": dict(type_counts),
     }
     facets_json = json.dumps(facets)
     # Extract richtext_tags for thread context tweets
@@ -416,6 +428,8 @@ def html(
         ".quoted-tweet { margin-top: 8px; padding: 12px; border: 1px solid #e1e8ed; "
         "border-radius: 12px; background: #f7f9fa; }",
         ".retweet-header { color: #657786; font-size: 13px; margin-bottom: 4px; }",
+        ".type-badges { display: inline-block; margin-left: 8px; }",
+        ".type-badge { font-size: 14px; margin-right: 2px; cursor: default; }",
         ".media-placeholder { background: #e1e8ed; border-radius: 8px; padding: 40px; "
         "text-align: center; color: #657786; cursor: pointer; margin-top: 8px; }",
         "@media (max-width: 768px) { body { flex-direction: column; } "
@@ -425,16 +439,17 @@ def html(
         "#filters input[type='search'], #filters input[type='text'], "
         "#filters input[type='date'] { width: 100%; padding: 8px; margin-bottom: 8px; "
         "border: 1px solid #e1e8ed; border-radius: 8px; box-sizing: border-box; }",
-        "#author-list { max-height: 200px; overflow-y: auto; border: 1px solid #e1e8ed; "
-        "border-radius: 8px; margin-bottom: 8px; }",
-        "#author-list label { display: flex; align-items: center; padding: 8px; "
-        "cursor: pointer; border-bottom: 1px solid #e1e8ed; font-size: 13px; gap: 4px; }",
-        "#author-list label:last-child { border-bottom: none; }",
-        "#author-list label:hover { background: #f7f9fa; }",
-        "#author-list label.selected { background: #e8f5fd; }",
-        "#author-list .author-name { flex: 1; overflow: hidden; text-overflow: ellipsis; "
-        "white-space: nowrap; min-width: 0; }",
-        "#author-list .author-count { flex-shrink: 0; color: #657786; }",
+        "#type-list, #author-list { max-height: 200px; overflow-y: auto; "
+        "border: 1px solid #e1e8ed; border-radius: 8px; margin-bottom: 8px; }",
+        "#type-list label, #author-list label { display: flex; align-items: center; "
+        "padding: 8px; cursor: pointer; border-bottom: 1px solid #e1e8ed; "
+        "font-size: 13px; gap: 4px; }",
+        "#type-list label:last-child, #author-list label:last-child { border-bottom: none; }",
+        "#type-list label:hover, #author-list label:hover { background: #f7f9fa; }",
+        "#type-list label.selected, #author-list label.selected { background: #e8f5fd; }",
+        "#type-list .author-name, #author-list .author-name { flex: 1; overflow: hidden; "
+        "text-overflow: ellipsis; white-space: nowrap; min-width: 0; }",
+        "#type-list .author-count, #author-list .author-count { flex-shrink: 0; color: #657786; }",
         "#filters button { width: 100%; padding: 8px; margin-top: 8px; "
         "border: 1px solid #e1e8ed; border-radius: 8px; cursor: pointer; "
         "background: #fff; }",
@@ -539,6 +554,45 @@ def html(
         "  });",
         "}",
         "let selectedAuthors = new Set();",
+        "let selectedTypes = new Set();",
+        "const TYPE_LABELS = {like: 'Likes', bookmark: 'Bookmarks', tweet: 'My Tweets', "
+        "repost: 'Reposts', reply: 'Replies'};",
+        "const TYPE_ICONS = {like: '\\u2764\\uFE0F', bookmark: '\\uD83D\\uDD16', "
+        "tweet: '\\uD83D\\uDC64', repost: '\\uD83D\\uDD01', reply: '\\u21A9\\uFE0F'};",
+        "function renderTypeBadges(types) {",
+        "  if (!types || types.length === 0) return '';",
+        "  return '<span class=\"type-badges\">' + types.map(t => "
+        '`<span class="type-badge" title="${TYPE_LABELS[t] || t}">${TYPE_ICONS[t] || \'\'}'
+        "</span>`).join('') + '</span>';",
+        "}",
+        "function renderTypeList() {",
+        "  const list = document.getElementById('type-list');",
+        "  if (!FACETS.types || Object.keys(FACETS.types).length === 0) {",
+        "    list.style.display = 'none';",
+        "    const header = list.previousElementSibling;",
+        "    if (header && header.tagName === 'H3') header.style.display = 'none';",
+        "    return;",
+        "  }",
+        "  list.replaceChildren();",
+        "  Object.entries(FACETS.types).forEach(([type, count]) => {",
+        "    const label = document.createElement('label');",
+        "    label.className = selectedTypes.has(type) ? 'selected' : '';",
+        "    const checkbox = document.createElement('input');",
+        "    checkbox.type = 'checkbox';",
+        "    checkbox.value = type;",
+        "    checkbox.checked = selectedTypes.size === 0 || selectedTypes.has(type);",
+        "    const nameSpan = document.createElement('span');",
+        "    nameSpan.className = 'author-name';",
+        "    nameSpan.textContent = TYPE_LABELS[type] || type;",
+        "    const countSpan = document.createElement('span');",
+        "    countSpan.className = 'author-count';",
+        "    countSpan.textContent = count;",
+        "    label.appendChild(checkbox);",
+        "    label.appendChild(nameSpan);",
+        "    label.appendChild(countSpan);",
+        "    list.appendChild(label);",
+        "  });",
+        "}",
         "function renderAuthorList(filterText) {",
         "  const list = document.getElementById('author-list');",
         "  list.replaceChildren();",
@@ -577,6 +631,12 @@ def html(
         "      const mainText = t.text.toLowerCase();",
         "      const threadText = getThreadText(t).toLowerCase();",
         "      return mainText.includes(query) || threadText.includes(query);",
+        "    });",
+        "  }",
+        "  if (selectedTypes.size > 0) {",
+        "    filtered = filtered.filter(t => {",
+        "      const types = t.collection_types || [];",
+        "      return types.some(ct => selectedTypes.has(ct));",
         "    });",
         "  }",
         "  if (selectedAuthors.size > 0) {",
@@ -621,10 +681,11 @@ def html(
         "        const star = th.id === t.id ? '\\u2B50 ' : '';",
         "        return `<p>${star}${formatNewlines(linkifyMentions(linkifyUrls(txt)))}</p>`;",
         "      }).join('');",
+        "      const badges = renderTypeBadges(t.collection_types);",
         "      return `<article class='thread'>",
         "        ${av}",
         "        <p><strong>🧵 Thread by ${escapeHtml(dn)}</strong> "
-        "@${escapeHtml(t.author_username)}</p>",
+        "@${escapeHtml(t.author_username)} ${badges}</p>",
         "        ${threadHtml}",
         '        <p><small>${dt} | <a href="${url}" target="_blank">View</a></small></p>',
         "      </article>`;",
@@ -642,10 +703,12 @@ def html(
         "@${escapeHtml(qt.author_username)}</p>"
         "<p>${formatNewlines(linkifyMentions(linkifyUrls(qtText)))}</p></div>` :"
         "(t.quoted_tweet_id ? '<div class=\"quoted-tweet\">Quoted tweet unavailable</div>' : '');",
+        "    const badges = renderTypeBadges(t.collection_types);",
         "    return `<article>",
         "      ${rtHeader}",
         "      ${av}",
-        "      <p><strong>${escapeHtml(dn)}</strong> @${escapeHtml(t.author_username)}</p>",
+        "      <p><strong>${escapeHtml(dn)}</strong> @${escapeHtml(t.author_username)} "
+        "${badges}</p>",
         "      <p>${formatNewlines(linkifyMentions(linkifyUrls(txt)))}</p>",
         "      ${renderMedia(t.media_json)}",
         "      ${qtHtml}",
@@ -656,6 +719,28 @@ def html(
         "document.addEventListener('DOMContentLoaded', () => {",
         "  const search = document.getElementById('search');",
         "  search.addEventListener('input', applyAllFilters);",
+        "  const typeList = document.getElementById('type-list');",
+        "  typeList.addEventListener('change', (e) => {",
+        "    if (e.target.type === 'checkbox') {",
+        "      const type = e.target.value;",
+        "      if (e.target.checked) {",
+        "        selectedTypes.add(type);",
+        "        if (selectedTypes.size === Object.keys(FACETS.types).length) {",
+        "          selectedTypes.clear();",
+        "        }",
+        "      } else {",
+        "        if (selectedTypes.size === 0) {",
+        "          Object.keys(FACETS.types).forEach(t => {",
+        "            if (t !== type) selectedTypes.add(t);",
+        "          });",
+        "        } else {",
+        "          selectedTypes.delete(type);",
+        "        }",
+        "      }",
+        "      renderTypeList();",
+        "      applyAllFilters();",
+        "    }",
+        "  });",
         "  const authorSearch = document.getElementById('author-search');",
         "  authorSearch.addEventListener('input', () => renderAuthorList(authorSearch.value));",
         "  const authorList = document.getElementById('author-list');",
@@ -676,8 +761,10 @@ def html(
         "    search.value = '';",
         "    authorSearch.value = '';",
         "    selectedAuthors.clear();",
+        "    selectedTypes.clear();",
         "    document.getElementById('date-from').value = '';",
         "    document.getElementById('date-to').value = '';",
+        "    renderTypeList();",
         "    renderAuthorList('');",
         "    applyAllFilters();",
         "  });",
@@ -688,6 +775,7 @@ def html(
         "    loadBtn.textContent = 'Images Enabled';",
         "    applyAllFilters();",
         "  });",
+        "  renderTypeList();",
         "  renderAuthorList('');",
         "  applyAllFilters();",
         "});",
@@ -697,6 +785,8 @@ def html(
         '<aside id="filters">',
         "<h3>Search</h3>",
         '<input type="search" id="search" placeholder="Search tweet content...">',
+        "<h3>Type</h3>",
+        '<div id="type-list"></div>',
         "<h3>Author</h3>",
         '<input type="text" id="author-search" placeholder="Filter authors...">',
         '<div id="author-list"></div>',
