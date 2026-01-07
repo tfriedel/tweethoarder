@@ -528,10 +528,11 @@ def html(
         "background: var(--bg-primary); color: var(--text-primary); min-height: 100vh; }",
         "#filters { width: 280px; padding: 16px; border-right: 1px solid var(--border-color); "
         "background: var(--bg-primary); overflow-y: auto; height: 100vh; "
-        "position: sticky; top: 0; }",
-        "#tweets { flex: 1; max-width: var(--tweet-max-width); margin: 0 auto; "
+        "position: sticky; top: 0; flex-shrink: 0; }",
+        "#tweets { flex: 1; overflow-y: auto; height: 100vh; position: relative; }",
+        "#tweet-content { max-width: var(--tweet-max-width); margin: 0 auto; "
         "border-left: 1px solid var(--border-color); "
-        "border-right: 1px solid var(--border-color); }",
+        "border-right: 1px solid var(--border-color); min-height: 100%; }",
         # Tweet card styles
         "article { border-bottom: 1px solid var(--border-color); padding: 12px 16px; }",
         ".tweet-container { display: flex; gap: 12px; }",
@@ -590,7 +591,9 @@ def html(
         "background: var(--bg-secondary); color: var(--text-primary); "
         "font-size: 15px; margin-bottom: 8px; }",
         "#filters input:focus { outline: none; border-color: var(--accent-blue); }",
-        "#type-list, #author-list { max-height: 200px; overflow-y: auto; "
+        "#type-list { border: 1px solid var(--border-color); border-radius: 12px; "
+        "margin-bottom: 8px; }",
+        "#author-list { max-height: 200px; overflow-y: auto; "
         "border: 1px solid var(--border-color); border-radius: 12px; margin-bottom: 8px; }",
         "#type-list label, #author-list label { display: flex; align-items: center; "
         "padding: 12px; cursor: pointer; border-bottom: 1px solid var(--border-color); "
@@ -625,9 +628,9 @@ def html(
         "mark.find-match { background: rgba(250, 204, 21, 0.4); color: inherit; "
         "border-radius: 2px; padding: 0 2px; }",
         # Virtual scrolling styles
-        "#tweets { position: relative; overflow-y: auto; height: 100vh; overflow-anchor: auto; }",
         "#tweet-viewport { position: relative; }",
-        "#tweet-container { position: absolute; top: 0; left: 0; right: 0; }",
+        "#tweet-container { position: absolute; top: 0; left: 0; right: 0; "
+        "max-width: var(--tweet-max-width); margin: 0 auto; }",
         # Responsive
         "@media (max-width: 768px) { body { flex-direction: column; } "
         "#filters { width: 100%; height: auto; position: static; border-right: none; "
@@ -1177,13 +1180,6 @@ def html(
         "  }",
         "  if (e.key === 'Escape') closeFindBar();",
         "});",
-        "// Global wheel scrolling - scroll tweets container from anywhere on page",
-        "document.addEventListener('wheel', (e) => {",
-        "  if (!scrollContainer) return;",
-        "  // Don't interfere with scrollable sidebar elements",
-        "  if (e.target.closest('#author-list, #type-list')) return;",
-        "  scrollContainer.scrollTop += e.deltaY;",
-        "}, { passive: true });",
         "document.addEventListener('DOMContentLoaded', () => {",
         "  // Initialize virtual scroll containers",
         "  scrollContainer = document.getElementById('tweets');",
@@ -1299,8 +1295,10 @@ def html(
         '<button onclick="closeFindBar()" title="Close (Esc)">&times;</button>',
         "</div>",
         '<main id="tweets">',
+        '<div id="tweet-content">',
         '<div id="tweet-viewport">',
         '<div id="tweet-container"></div>',
+        "</div>",
         "</div>",
         "</main>",
     ]
