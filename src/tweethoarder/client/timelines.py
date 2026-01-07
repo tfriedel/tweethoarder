@@ -201,6 +201,73 @@ def build_user_tweets_and_replies_url(
     return f"{TWITTER_API_BASE}/{query_id}/UserTweetsAndReplies?{params}"
 
 
+def build_home_timeline_url(query_id: str, cursor: str | None = None) -> str:
+    """Build URL for fetching home timeline (Following feed) from Twitter GraphQL API."""
+    variables: dict[str, str | int | bool | list[str]] = {
+        "count": 20,
+        "seenTweetIds": [],
+        "includePromotedContent": False,
+    }
+    if cursor:
+        variables["cursor"] = cursor
+    features = build_likes_features()
+    params = urlencode({"variables": json.dumps(variables), "features": json.dumps(features)})
+    return f"{TWITTER_API_BASE}/{query_id}/HomeLatestTimeline?{params}"
+
+
+def parse_home_timeline_response(
+    response: dict[str, Any],
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Parse home timeline API response and extract tweets with sort index and next cursor."""
+    entries: list[dict[str, Any]] = []
+    cursor: str | None = None
+
+    timeline = response.get("data", {}).get("home", {}).get("home_timeline_urt", {})
+
+    for instruction in timeline.get("instructions", []):
+        if instruction.get("type") != "TimelineAddEntries":
+            continue
+        for entry in instruction.get("entries", []):
+            entry_id = entry.get("entryId", "")
+            content = entry.get("content", {})
+
+            if entry_id.startswith("tweet-"):
+                item_content = content.get("itemContent", {})
+                tweet_result = item_content.get("tweet_results", {}).get("result")
+                if tweet_result:
+                    entries.append(
+                        {
+                            "tweet": tweet_result,
+                            "sort_index": entry.get("sortIndex"),
+                        }
+                    )
+            elif entry_id.startswith("cursor-bottom-"):
+                cursor = content.get("value")
+
+    return entries, cursor
+
+
+async def fetch_home_timeline_page(
+    client: Any,
+    query_id: str,
+    cursor: str | None = None,
+    on_query_id_refresh: Callable[[], Awaitable[str]] | None = None,
+) -> dict[str, Any]:
+    """Fetch a page of home timeline from Twitter GraphQL API."""
+    current_query_id = query_id
+    url = build_home_timeline_url(current_query_id, cursor)
+    response = await client.get(url)
+
+    if response.status_code == 404 and on_query_id_refresh:
+        current_query_id = await on_query_id_refresh()
+        url = build_home_timeline_url(current_query_id, cursor)
+        response = await client.get(url)
+
+    response.raise_for_status()
+    result: dict[str, Any] = response.json()
+    return result
+
+
 def build_likes_url(query_id: str, user_id: str, cursor: str | None = None) -> str:
     """Build URL for fetching likes from Twitter GraphQL API.
 
@@ -688,10 +755,11 @@ def extract_tweet_data(raw_tweet: dict[str, Any]) -> dict[str, Any] | None:
         "media_json": json.dumps(_strip_media(media)) if media else None,
         "hashtags_json": json.dumps(_strip_hashtags(hashtags)) if hashtags else None,
         "mentions_json": json.dumps(_strip_mentions(mentions)) if mentions else None,
-        "reply_count": legacy.get("reply_count", 0),
-        "retweet_count": legacy.get("retweet_count", 0),
-        "like_count": legacy.get("favorite_count", 0),
-        "quote_count": legacy.get("quote_count", 0),
+        # For retweets, get stats from original tweet
+        "reply_count": (rt_legacy if is_retweet else legacy).get("reply_count", 0),
+        "retweet_count": (rt_legacy if is_retweet else legacy).get("retweet_count", 0),
+        "like_count": (rt_legacy if is_retweet else legacy).get("favorite_count", 0),
+        "quote_count": (rt_legacy if is_retweet else legacy).get("quote_count", 0),
     }
 
 

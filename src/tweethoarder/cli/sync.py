@@ -1159,3 +1159,70 @@ def threads(
         + (f", {result['failed_count']} failed" if result["failed_count"] else "")
         + "."
     )
+
+
+async def sync_feed_async(
+    db_path: Path,
+    hours: int = 24,
+    count: int | float = float("inf"),
+    store_raw: bool = False,
+    progress: Progress | None = None,
+) -> dict[str, Any]:
+    """Sync home timeline (Following feed) from Twitter to local database."""
+    from tweethoarder.client.timelines import (
+        fetch_home_timeline_page,
+        parse_home_timeline_response,
+    )
+
+    init_database(db_path)
+
+    cookies = resolve_cookies()
+    if not cookies:
+        raise ValueError("No cookies found. Please log in to Twitter in your browser.")
+
+    client = TwitterClient(cookies=cookies)
+    cache_path = get_config_dir() / "query-ids-cache.json"
+    store = QueryIdStore(cache_path)
+    query_id = get_query_id_with_fallback(store, "HomeLatestTimeline")
+
+    synced_count = 0
+    headers = client.get_base_headers()
+
+    async with httpx.AsyncClient(headers=headers) as http_client:
+
+        async def refresh_and_get_home_timeline_id() -> str:
+            """Refresh query IDs and return the new HomeLatestTimeline ID."""
+            new_ids: dict[str, str] = await refresh_query_ids(
+                http_client, targets={"HomeLatestTimeline"}
+            )
+            store.save(new_ids)
+            return new_ids["HomeLatestTimeline"]
+
+        response = await fetch_home_timeline_page(
+            http_client, query_id, on_query_id_refresh=refresh_and_get_home_timeline_id
+        )
+        entries, _ = parse_home_timeline_response(response)
+
+        for entry in entries:
+            raw_tweet = entry["tweet"]
+            sort_index = entry.get("sort_index")
+            tweet_data = extract_tweet_data(raw_tweet)
+            if tweet_data:
+                save_tweet(db_path, tweet_data)
+                add_to_collection(db_path, tweet_data["id"], "feed", sort_index=sort_index)
+                synced_count += 1
+
+    return {"synced_count": synced_count}
+
+
+@app.command()
+def feed(
+    hours: int = typer.Option(24, "--hours", "-h", help="Hours of feed to sync."),
+) -> None:
+    """Sync home timeline (Following feed) to local storage."""
+    from tweethoarder.config import get_data_dir
+
+    db_path = get_data_dir() / "tweethoarder.db"
+
+    result = asyncio.run(sync_feed_async(db_path=db_path, hours=hours))
+    typer.echo(f"Synced {result['synced_count']} feed tweets.")

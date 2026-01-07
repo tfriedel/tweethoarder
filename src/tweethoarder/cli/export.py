@@ -394,6 +394,10 @@ def html(
         "author_id",
         "author_username",
         "author_display_name",
+        "reply_count",
+        "retweet_count",
+        "like_count",
+        "quote_count",
         "author_avatar_url",
         "created_at",
         "conversation_id",
@@ -565,6 +569,8 @@ def html(
         "text-align: center; color: var(--text-secondary); cursor: pointer; margin-top: 12px; }",
         ".tweet-actions { margin-top: 12px; }",
         ".view-link { color: var(--accent-blue); font-size: 13px; }",
+        ".tweet-stats { display: flex; gap: 16px; margin-top: 8px; color: var(--text-secondary); "
+        "font-size: 13px; }",
         # Theme switcher - subtle, compact
         "#theme-switcher { display: flex; gap: 4px; margin-bottom: 12px; }",
         "#theme-switcher button { padding: 4px 8px; border: 1px solid var(--border-color); "
@@ -755,9 +761,18 @@ def html(
         "let selectedAuthors = new Set();",
         "let selectedTypes = new Set();",
         "const TYPE_LABELS = {like: 'Likes', bookmark: 'Bookmarks', tweet: 'My Tweets', "
-        "repost: 'Reposts', reply: 'Replies'};",
+        "repost: 'Reposts', reply: 'Replies', feed: 'Feed'};",
         "const TYPE_ICONS = {like: '\\u2764\\uFE0F', bookmark: '\\uD83D\\uDD16', "
-        "tweet: '\\uD83D\\uDC64', repost: '\\uD83D\\uDD01', reply: '\\u21A9\\uFE0F'};",
+        "tweet: '\\uD83D\\uDC64', repost: '\\uD83D\\uDD01', reply: '\\u21A9\\uFE0F', "
+        "feed: '\\uD83C\\uDFE0'};",
+        "function renderStats(t) {",
+        "  const stats = [];",
+        "  if (t.reply_count) stats.push('💬 ' + t.reply_count);",
+        "  if (t.retweet_count) stats.push('🔁 ' + t.retweet_count);",
+        "  if (t.like_count) stats.push('❤️ ' + t.like_count);",
+        "  if (t.quote_count) stats.push('💭 ' + t.quote_count);",
+        "  return stats.length ? '<div class=\"tweet-stats\">' + stats.join(' ') + '</div>' : '';",
+        "}",
         "function renderTypeBadges(types) {",
         "  if (!types || types.length === 0) return '';",
         "  return '<span class=\"type-badges\">' + types.map(t => "
@@ -1027,6 +1042,7 @@ def html(
         "        <p>${highlightFindText(formatNewlines(linkifyMentions(linkifyUrls(txt))))}</p>",
         "        ${renderMedia(t.media_json)}",
         "        ${qtHtml}",
+        "        ${renderStats(t)}",
         '        <p><small>${dt} | <a href="${url}" target="_blank">View</a> | '
         '<a href="#" onclick="hc(\'${t.id}\'); return false;">Copy</a></small></p>',
         "      </div>",

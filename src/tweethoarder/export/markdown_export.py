@@ -17,6 +17,7 @@ COLLECTION_TITLES = {
     "reposts": "Reposted Tweets",
     "replies": "My Replies",
     "posts": "My Posts",
+    "feed": "Following Feed",
 }
 
 

@@ -79,3 +79,12 @@ def test_query_id_pattern_validates_alphanumeric_with_dashes() -> None:
     invalid_ids = ["has spaces", "special!char", ""]
     for qid in invalid_ids:
         assert not re.match(QUERY_ID_PATTERN, qid), f"Should not match: {qid}"
+
+
+def test_fallback_query_ids_contains_home_latest_timeline() -> None:
+    """FALLBACK_QUERY_IDS should contain HomeLatestTimeline for feed sync."""
+    from tweethoarder.query_ids.constants import FALLBACK_QUERY_IDS
+
+    assert "HomeLatestTimeline" in FALLBACK_QUERY_IDS
+    assert isinstance(FALLBACK_QUERY_IDS["HomeLatestTimeline"], str)
+    assert len(FALLBACK_QUERY_IDS["HomeLatestTimeline"]) > 0
