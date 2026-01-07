@@ -1,13 +1,15 @@
 # TweetHoarder
 
-Archive your Twitter/X data locally - likes, bookmarks, tweets, and reposts.
+Archive your Twitter/X data locally - likes, bookmarks, tweets, reposts, and home feed.
 
 TweetHoarder uses cookie-based authentication to access Twitter's internal GraphQL API (no paid API key required), storing everything in a local SQLite database for offline access and search.
 
 ## Features
 
-- **Sync your data**: Likes, bookmarks (with folders), tweets, reposts
+- **Sync your data**: Likes, bookmarks (with folders), tweets, reposts, replies, and home feed
+- **Quote tweets**: Full support for quoted tweets in sync and all export formats
 - **Thread expansion**: Archive full threads and conversations with context
+- **Rich HTML export**: Twitter-style design with dark/light themes, virtual scrolling, search/filter, and copy-as-markdown
 - **Multiple exports**: JSON, Markdown, CSV, and searchable HTML
 - **Resume support**: Checkpointing allows interrupted syncs to continue
 - **Browser cookie extraction**: Auto-detect from Firefox or Chrome
@@ -39,9 +41,13 @@ tweethoarder sync bookmarks
 tweethoarder sync tweets --count 500
 tweethoarder sync reposts --all
 
+# Sync your home timeline (last 24 hours)
+tweethoarder sync feed
+
 # Export your data
 tweethoarder export json --collection likes --output ~/likes.json
-tweethoarder export html --collection bookmarks  # Searchable HTML viewer
+tweethoarder export html --collection bookmarks  # Twitter-style HTML viewer
+tweethoarder export html --collection all        # Combined export with type filters
 
 # View statistics
 tweethoarder stats
@@ -65,6 +71,15 @@ tweethoarder sync tweets [--count N] [--all]
 
 # Sync reposts (retweets)
 tweethoarder sync reposts [--count N] [--all]
+
+# Sync replies
+tweethoarder sync replies [--count N] [--all]
+
+# Sync tweets + reposts in a single efficient API call
+tweethoarder sync posts [--count N] [--all]
+
+# Sync home timeline (Following feed)
+tweethoarder sync feed [--hours N]  # Default: last 24 hours
 
 # Sync with thread expansion (archives full threads for each tweet)
 tweethoarder sync likes --with-threads [--thread-mode thread|conversation]
@@ -90,18 +105,36 @@ tweethoarder thread 1234567890 --mode conversation --limit 200
 # Export to JSON
 tweethoarder export json [--collection TYPE] [--output PATH]
 
-# Export to Markdown
+# Export to Markdown (thread-aware with quote tweet support)
 tweethoarder export markdown [--collection TYPE] [--output PATH]
-
-# Export to searchable HTML (single file with embedded search)
-tweethoarder export html [--collection TYPE] [--output PATH]
 
 # Export to CSV
 tweethoarder export csv [--collection TYPE] [--output PATH]
 
 # Export specific bookmark folder
 tweethoarder export json --collection bookmarks --folder "Work"
+
+# Export to HTML (Twitter-style viewer)
+tweethoarder export html [--collection TYPE] [--output PATH]
+
+# Combined export with all collection types
+tweethoarder export html --collection all
 ```
+
+**Collection types**: `likes`, `bookmarks`, `tweets`, `reposts`, `replies`, `posts`, `all`
+
+### HTML Export Features
+
+The HTML export generates a single-file Twitter-style viewer:
+
+- **Theme switcher**: Toggle between light and dark modes
+- **Virtual scrolling**: Smoothly handles thousands of tweets
+- **Search & filter**: Full-text search with author filters
+- **Type filtering**: When using `--collection all`, filter by likes/bookmarks/tweets/etc.
+- **Copy as Markdown**: Click any tweet to copy as formatted markdown
+- **Quote tweets**: Visual display of quoted tweets with proper attribution
+- **Media support**: Embedded images with expandable views
+- **Clickable links**: @mentions link to Twitter profiles, URLs are clickable
 
 ### Utility Commands
 
@@ -152,8 +185,8 @@ All data is stored in SQLite at `~/.local/share/tweethoarder/tweethoarder.db`
 
 ### Database Schema
 
-- **tweets**: All tweet content and metadata
-- **collections**: Which tweets belong to which collection (likes, bookmarks, etc.)
+- **tweets**: All tweet content and metadata (including quote tweets)
+- **collections**: Which tweets belong to which collection (likes, bookmarks, tweets, reposts, replies, feed)
 - **threads**: Thread/conversation metadata
 - **sync_progress**: Checkpoints for resumable syncs
 
@@ -171,6 +204,12 @@ FROM tweets t
 JOIN collections c ON t.id = c.tweet_id
 WHERE c.collection_type = 'like'
 ORDER BY engagement DESC LIMIT 50;
+
+-- Get recent tweets from your home feed
+SELECT t.* FROM tweets t
+JOIN collections c ON t.id = c.tweet_id
+WHERE c.collection_type = 'feed'
+ORDER BY t.created_at DESC LIMIT 100;
 ```
 
 See [SPEC.md](SPEC.md) for comprehensive SQL query examples.
