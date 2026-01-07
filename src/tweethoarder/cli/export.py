@@ -352,6 +352,41 @@ def html(
     if repost_ids_to_remove:
         tweets = [t for t in tweets if t["id"] not in repost_ids_to_remove]
 
+    # Deduplicate tweets from the same thread (same conversation_id)
+    # Only deduplicate self-reply threads (where author replies to themselves)
+    # Keep only one entry per thread, but track all highlighted tweet IDs
+    def is_self_reply_thread_tweet(t: dict[str, Any]) -> bool:
+        """Check if tweet is part of a self-reply thread (not a reply to someone else)."""
+        reply_to_user = t.get("in_reply_to_user_id")
+        author_id = t.get("author_id")
+        # Thread start (no reply_to_user) or self-reply (same user)
+        return reply_to_user is None or reply_to_user == author_id
+
+    seen_conversations: dict[str, dict[str, Any]] = {}
+    deduplicated_tweets: list[dict[str, Any]] = []
+
+    for tweet in tweets:
+        conv_id = tweet.get("conversation_id")
+        # Only deduplicate if this is part of a self-reply thread
+        is_thread_tweet = is_self_reply_thread_tweet(tweet)
+        if conv_id and is_thread_tweet and conv_id in seen_conversations:
+            # Same thread - add this tweet's ID to highlighted_tweet_ids
+            seen_conversations[conv_id]["highlighted_tweet_ids"].append(tweet["id"])
+            # Merge collection_types
+            existing_types = seen_conversations[conv_id].get("collection_types", [])
+            for ct in tweet.get("collection_types", []):
+                if ct not in existing_types:
+                    existing_types.append(ct)
+            seen_conversations[conv_id]["collection_types"] = existing_types
+        else:
+            # New thread, standalone tweet, or reply to someone else's comment
+            tweet["highlighted_tweet_ids"] = [tweet["id"]]
+            deduplicated_tweets.append(tweet)
+            if conv_id and is_thread_tweet:
+                seen_conversations[conv_id] = tweet
+
+    tweets = deduplicated_tweets
+
     # Strip unused fields to reduce HTML size
     used_fields = {
         "id",
@@ -362,6 +397,8 @@ def html(
         "author_avatar_url",
         "created_at",
         "conversation_id",
+        "in_reply_to_tweet_id",
+        "in_reply_to_user_id",
         "urls_json",
         "media_json",
         "is_retweet",
@@ -369,6 +406,7 @@ def html(
         "quoted_tweet_id",
         "richtext_tags",
         "collection_types",
+        "highlighted_tweet_ids",
     }
     stripped_tweets = [{k: v for k, v in t.items() if k in used_fields} for t in tweets]
     # Include quoted tweets separately for TWEETS_MAP lookup only
@@ -581,7 +619,7 @@ def html(
         "mark.find-match { background: rgba(250, 204, 21, 0.4); color: inherit; "
         "border-radius: 2px; padding: 0 2px; }",
         # Virtual scrolling styles
-        "#tweets { position: relative; overflow-y: auto; height: 100vh; }",
+        "#tweets { position: relative; overflow-y: auto; height: 100vh; overflow-anchor: auto; }",
         "#tweet-viewport { position: relative; }",
         "#tweet-container { position: absolute; top: 0; left: 0; right: 0; }",
         # Responsive
@@ -661,7 +699,6 @@ def html(
         "    btn.classList.toggle('active', btn.dataset.theme === theme);",
         "  });",
         "}",
-        "let imagesEnabled = false;",
         "function renderMedia(mediaJson) {",
         "  if (!mediaJson) return '';",
         "  try {",
@@ -669,14 +706,11 @@ def html(
         "    return media.map(m => {",
         "      const url = m.media_url_https || m.media_url;",
         "      if (!isValidMediaUrl(url)) return '';",
-        "      if (imagesEnabled) {",
-        "        return `<img src='${url}' "
-        "style='max-width:100%;border-radius:8px;margin-top:8px'>`;",
-        "      }",
-        "      return `<div class='media-placeholder' data-src='${url}' "
-        'onclick=\'this.outerHTML=\\`<img src="${url}" '
-        'style="max-width:100%;border-radius:8px;margin-top:8px">\\`\'>'
-        "Click to load image</div>`;",
+        "      const w = m.width || 600;",
+        "      const h = m.height || 400;",
+        "      const aspectStyle = `aspect-ratio: ${w} / ${h}`;",
+        "      return `<img src='${url}' loading='lazy' "
+        "style='max-width:100%;border-radius:8px;margin-top:8px;${aspectStyle};width:100%;object-fit:cover'>`;",
         "    }).join('');",
         "  } catch (e) { console.error('Failed to render media:', e.message); return ''; }",
         "}",
@@ -798,11 +832,36 @@ def html(
         "  if (!convId || !THREAD_CONTEXT[convId]) return [];",
         "  const allTweets = THREAD_CONTEXT[convId];",
         "  const authorId = tweet.author_id;",
-        "  return allTweets.filter(t => {",
+        "  // Filter to only include self-replies (author's thread posts)",
+        "  const threadTweets = allTweets.filter(t => {",
         "    if (t.author_id !== authorId) return false;",
-        "    if (t.id === convId) return true;",
-        "    return !t.text.startsWith('@');",
-        "  }).sort((a,b) => a.created_at.localeCompare(b.created_at));",
+        "    // Thread start (no reply) or self-reply (replying to own tweet)",
+        "    return !t.in_reply_to_user_id || t.in_reply_to_user_id === authorId;",
+        "  });",
+        "  // Topological sort by reply chain (in_reply_to_tweet_id)",
+        "  const byId = new Map(threadTweets.map(t => [t.id, t]));",
+        "  const children = new Map();",
+        "  const roots = [];",
+        "  threadTweets.forEach(t => {",
+        "    const parent = t.in_reply_to_tweet_id;",
+        "    if (!parent || !byId.has(parent)) { roots.push(t); return; }",
+        "    if (!children.has(parent)) children.set(parent, []);",
+        "    children.get(parent).push(t);",
+        "  });",
+        "  // Sort roots by created_at so oldest root comes first",
+        "  roots.sort((a,b) => a.created_at.localeCompare(b.created_at));",
+        "  // Walk chain from all roots",
+        "  const sorted = [];",
+        "  const queue = [...roots];",
+        "  while (queue.length > 0) {",
+        "    const current = queue.shift();",
+        "    sorted.push(current);",
+        "    const kids = children.get(current.id) || [];",
+        "    // Sort children by created_at as tiebreaker",
+        "    kids.sort((a,b) => a.created_at.localeCompare(b.created_at));",
+        "    queue.push(...kids);",
+        "  }",
+        "  return sorted;",
         "}",
         "// Virtual scrolling configuration",
         "const ESTIMATED_ROW_HEIGHT = 150;",
@@ -812,6 +871,60 @@ def html(
         "let viewport = null;",
         "let tweetContainer = null;",
         "let rafId = null;",
+        "// Height cache for measured tweet heights (tweet ID -> height)",
+        "const heightCache = new Map();",
+        "// Get height for a tweet (measured or estimated)",
+        "function getItemHeight(tweet) {",
+        "  return heightCache.get(tweet.id) || ESTIMATED_ROW_HEIGHT;",
+        "}",
+        "// Calculate cumulative offset (sum of heights up to index)",
+        "function getOffsetForIndex(tweets, index) {",
+        "  let offset = 0;",
+        "  for (let i = 0; i < index && i < tweets.length; i++) {",
+        "    offset += getItemHeight(tweets[i]);",
+        "  }",
+        "  return offset;",
+        "}",
+        "// Binary search to find index at scroll position",
+        "function findIndexAtOffset(tweets, scrollTop) {",
+        "  if (tweets.length === 0) return 0;",
+        "  let low = 0, high = tweets.length - 1;",
+        "  let offset = 0;",
+        "  while (low < high) {",
+        "    const mid = Math.floor((low + high) / 2);",
+        "    const midOffset = getOffsetForIndex(tweets, mid);",
+        "    const midHeight = getItemHeight(tweets[mid]);",
+        "    if (scrollTop < midOffset) {",
+        "      high = mid - 1;",
+        "    } else if (scrollTop >= midOffset + midHeight) {",
+        "      low = mid + 1;",
+        "    } else {",
+        "      return mid;",
+        "    }",
+        "  }",
+        "  return Math.max(0, low);",
+        "}",
+        "// Get total height of all tweets",
+        "function getTotalHeight(tweets) {",
+        "  let total = 0;",
+        "  for (const tweet of tweets) {",
+        "    total += getItemHeight(tweet);",
+        "  }",
+        "  return total;",
+        "}",
+        "// Measure rendered items and update cache",
+        "function measureRenderedItems(startIdx) {",
+        "  if (!tweetContainer) return;",
+        "  const articles = tweetContainer.querySelectorAll('article');",
+        "  const tweets = currentFilteredTweets;",
+        "  articles.forEach((article, i) => {",
+        "    const idx = startIdx + i;",
+        "    if (idx < tweets.length) {",
+        "      const height = article.getBoundingClientRect().height;",
+        "      if (height > 0) heightCache.set(tweets[idx].id, height);",
+        "    }",
+        "  });",
+        "}",
         "// Safe HTML rendering using template element",
         "// Falls back gracefully if DOMPurify unavailable (e.g., local file:// protocol)",
         "function safeRenderHTML(container, htmlContent) {",
@@ -832,7 +945,8 @@ def html(
         "  const isCurrentMatch = tweetIdx === currentMatchIdx;",
         "  const highlightClass = isCurrentMatch ? ' find-highlight' : '';",
         "  const threadTweets = getThreadTweets(t);",
-        "  const isThread = threadTweets.length > 1;",
+        "  // Only render as thread if current tweet is part of it (not a reply to someone else)",
+        "  const isThread = threadTweets.length > 1 && threadTweets.some(th => th.id === t.id);",
         "  const dn = t.author_display_name || t.author_username;",
         "  const dt = t.created_at ? t.created_at.slice(0, 16).replace('T', ' ') : '';",
         "  const url = `https://x.com/${t.author_username}/status/${t.id}`;",
@@ -844,7 +958,7 @@ def html(
         "    const threadHtml = threadTweets.map(th => {",
         "      const richTxt = applyRichtext(th.text, th.richtext_tags);",
         "      const txt = expandUrls(richTxt, th.urls_json);",
-        "      const star = th.id === t.id ? '\\u2B50 ' : '';",
+        "      const star = (t.highlighted_tweet_ids || []).includes(th.id) ? '\\u2B50 ' : '';",
         "      return `<p>${star}${formatNewlines(linkifyMentions(linkifyUrls(txt)))}</p>`;",
         "    }).join('');",
         "    const badges = renderTypeBadges(t.collection_types);",
@@ -896,20 +1010,22 @@ def html(
         "function updateVirtualScroll() {",
         "  if (!scrollContainer || !viewport || !tweetContainer) return;",
         "  const tweets = currentFilteredTweets;",
-        "  const totalHeight = tweets.length * ESTIMATED_ROW_HEIGHT;",
+        "  const totalHeight = getTotalHeight(tweets);",
         "  viewport.style.height = totalHeight + 'px';",
         "  const scrollTop = scrollContainer.scrollTop;",
         "  const viewportHeight = scrollContainer.clientHeight;",
-        "  const startIdx = Math.max(0, "
-        "Math.floor(scrollTop / ESTIMATED_ROW_HEIGHT) - BUFFER_SIZE);",
-        "  const visibleCount = Math.ceil(viewportHeight / ESTIMATED_ROW_HEIGHT);",
+        "  const scrollIdx = findIndexAtOffset(tweets, scrollTop);",
+        "  const startIdx = Math.max(0, scrollIdx - BUFFER_SIZE);",
+        "  const visibleCount = Math.ceil(viewportHeight / ESTIMATED_ROW_HEIGHT) + 5;",
         "  const endIdx = Math.min(tweets.length, startIdx + visibleCount + BUFFER_SIZE * 2);",
         "  const visibleTweets = tweets.slice(startIdx, endIdx);",
-        "  tweetContainer.style.transform = `translateY(${startIdx * ESTIMATED_ROW_HEIGHT}px)`;",
+        "  const startOffset = getOffsetForIndex(tweets, startIdx);",
+        "  tweetContainer.style.transform = `translateY(${startOffset}px)`;",
         "  const currentMatchTweetIdx = findCurrentIdx >= 0 ? findMatches[findCurrentIdx] : -1;",
         "  const html = visibleTweets.map((t, i) => "
         "renderSingleTweet(t, startIdx + i, currentMatchTweetIdx)).join('');",
         "  safeRenderHTML(tweetContainer, html);",
+        "  requestAnimationFrame(() => measureRenderedItems(startIdx));",
         "}",
         "function scheduleVirtualScrollUpdate() {",
         "  if (rafId || isJumpingToMatch) return;",
@@ -961,7 +1077,10 @@ def html(
         "  }",
         "  findMatches = [];",
         "  currentFilteredTweets.forEach((t, idx) => {",
-        "    if (t.text.toLowerCase().includes(findQuery)) findMatches.push(idx);",
+        "    const mainText = t.text.toLowerCase();",
+        "    const threadText = getThreadText(t).toLowerCase();",
+        "    if (mainText.includes(findQuery) || threadText.includes(findQuery)) "
+        "findMatches.push(idx);",
         "  });",
         "  findCurrentIdx = findMatches.length > 0 ? 0 : -1;",
         "  updateFindCount();",
@@ -979,7 +1098,7 @@ def html(
         "  if (findCurrentIdx < 0 || findMatches.length === 0) return;",
         "  isJumpingToMatch = true;",
         "  const tweetIdx = findMatches[findCurrentIdx];",
-        "  const scrollTop = tweetIdx * ESTIMATED_ROW_HEIGHT;",
+        "  const scrollTop = getOffsetForIndex(currentFilteredTweets, tweetIdx);",
         "  scrollContainer.scrollTop = scrollTop;",
         "  updateFindCount();",
         "  updateVirtualScroll();",
@@ -1086,13 +1205,6 @@ def html(
         "    renderAuthorList('');",
         "    applyAllFilters();",
         "  });",
-        "  const loadBtn = document.getElementById('load-images');",
-        "  loadBtn.addEventListener('click', () => {",
-        "    imagesEnabled = true;",
-        "    loadBtn.disabled = true;",
-        "    loadBtn.textContent = 'Images Enabled';",
-        "    applyAllFilters();",
-        "  });",
         "  const themeSwitcher = document.getElementById('theme-switcher');",
         "  themeSwitcher.addEventListener('click', (e) => {",
         "    if (e.target.dataset.theme) setTheme(e.target.dataset.theme);",
@@ -1134,7 +1246,6 @@ def html(
         '<input type="date" id="date-from">',
         '<input type="date" id="date-to">',
         '<button id="clear-filters">Clear All Filters</button>',
-        '<button id="load-images">Load Images</button>',
         '<div id="results-count"></div>',
         "</aside>",
         # Find bar (Ctrl+F replacement)

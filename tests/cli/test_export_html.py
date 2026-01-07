@@ -1,5 +1,7 @@
 """Tests for HTML export CLI command."""
 
+import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -236,8 +238,10 @@ def test_html_export_renders_retweets(tmp_path: Path) -> None:
         assert "${rtHeader}" in content
 
 
-def test_html_export_image_toggle(tmp_path: Path) -> None:
-    """HTML export should have toggle to load images."""
+def test_html_export_auto_loads_images_with_aspect_ratio(tmp_path: Path) -> None:
+    """HTML export should auto-load images with aspect-ratio for layout stability."""
+    media = '[{"type": "photo", "media_url_https": "https://example.com/img.jpg", '
+    media += '"width": 800, "height": 600}]'
     mock_tweets = [
         {
             "id": "1",
@@ -245,7 +249,7 @@ def test_html_export_image_toggle(tmp_path: Path) -> None:
             "author_id": "user1",
             "author_username": "testuser",
             "created_at": "2025-01-01T12:00:00Z",
-            "media_json": '[{"type": "photo", "media_url_https": "https://example.com/img.jpg"}]',
+            "media_json": media,
         }
     ]
 
@@ -268,26 +272,19 @@ def test_html_export_image_toggle(tmp_path: Path) -> None:
         assert result.exit_code == 0
         content = output_file.read_text()
 
-        # Should have CSS for image placeholder
-        assert ".media-placeholder" in content
-
-        # Should have a toggle button for images
-        assert "load-images" in content or "loadImages" in content
-
-        # JS should parse media_json and render placeholders
+        # JS should parse media_json and call renderMedia
         assert "media_json" in content
-        assert "renderMedia" in content or "t.media_json" in content
+        assert "renderMedia" in content
 
-        # Load Images button should have event listener that sets imagesEnabled
-        assert "load-images" in content
-        assert (
-            "loadBtn.addEventListener" in content
-            or "getElementById('load-images').addEventListener" in content
-        )
+        # renderMedia should use aspect-ratio for layout stability
+        assert "aspect-ratio" in content
 
-        # Media placeholders should be clickable to load individual images
-        assert "media-placeholder" in content
-        assert "onclick=" in content  # inline click handler on placeholder
+        # Images should use lazy loading
+        assert "loading='lazy'" in content or 'loading="lazy"' in content
+
+        # Should NOT have a toggle button (images auto-load)
+        assert "load-images" not in content
+        assert "loadBtn" not in content
 
 
 def test_html_export_renders_media_in_template(tmp_path: Path) -> None:
@@ -1740,3 +1737,137 @@ def test_html_export_keeps_repost_when_original_not_in_collection(tmp_path: Path
         assert len(tweets) == 1
         assert tweets[0]["id"] == "2001"
         assert tweets[0]["collection_types"] == ["repost"]
+
+
+def test_html_export_deduplicates_tweets_from_same_thread(tmp_path: Path) -> None:
+    """HTML export should show thread only once when multiple tweets from it are liked."""
+    # User liked tweets 3/, 5/, 8/ from the same thread
+    mock_tweets = [
+        {
+            "id": "1003",
+            "text": "3/ Third tweet in thread",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:02:00Z",
+            "conversation_id": "1001",
+        },
+        {
+            "id": "1005",
+            "text": "5/ Fifth tweet in thread",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:04:00Z",
+            "conversation_id": "1001",
+        },
+        {
+            "id": "1008",
+            "text": "8/ Eighth tweet in thread",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:07:00Z",
+            "conversation_id": "1001",
+        },
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = mock_tweets  # Thread context returns same tweets
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        import json
+        import re
+
+        tweets_match = re.search(r"const TWEETS = (\[.*?\]);", content, re.DOTALL)
+        assert tweets_match is not None
+
+        tweets = json.loads(tweets_match.group(1))
+
+        # Should have only 1 entry (deduplicated by conversation_id)
+        assert len(tweets) == 1
+        # Should have all three liked tweet IDs tracked
+        assert set(tweets[0]["highlighted_tweet_ids"]) == {"1003", "1005", "1008"}
+
+
+def test_html_export_does_not_deduplicate_replies_to_others(tmp_path: Path) -> None:
+    """Replies to other users' comments should NOT be deduplicated with the thread.
+
+    If the author replies to someone else's comment on their thread, that reply
+    should appear as a separate entry, not grouped with the main thread.
+    """
+    author_id = "author123"
+    other_user_id = "other456"
+    conversation_id = "1001"  # Thread start
+
+    # Tweet in the main thread (thread start)
+    thread_tweet = {
+        "id": "1001",
+        "text": "Starting a thread",
+        "author_id": author_id,
+        "author_username": "author",
+        "created_at": "2025-01-01T12:00:00Z",
+        "conversation_id": conversation_id,
+        "in_reply_to_user_id": None,
+        "in_reply_to_tweet_id": None,
+    }
+
+    # Author's reply to someone else's comment (NOT part of main thread)
+    reply_to_other = {
+        "id": "1003",
+        "text": "@otheruser Thanks for the feedback!",
+        "author_id": author_id,
+        "author_username": "author",
+        "created_at": "2025-01-01T12:10:00Z",
+        "conversation_id": conversation_id,
+        "in_reply_to_user_id": other_user_id,  # Reply to OTHER user
+        "in_reply_to_tweet_id": "1002",  # Other user's comment
+    }
+
+    mock_tweets = [thread_tweet, reply_to_other]
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get.return_value = mock_tweets
+        mock_thread.return_value = mock_tweets
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Parse the TWEETS array
+        match = re.search(r"const TWEETS = (\[.*?\]);", content, re.DOTALL)
+        assert match
+        tweets = json.loads(match.group(1))
+
+        # Should have TWO entries: the thread AND the reply to other user
+        assert len(tweets) == 2
+
+        # First should be the thread start
+        assert tweets[0]["id"] == "1001"
+        assert tweets[0]["highlighted_tweet_ids"] == ["1001"]
+
+        # Second should be the reply to other user (separate entry)
+        assert tweets[1]["id"] == "1003"
+        assert tweets[1]["highlighted_tweet_ids"] == ["1003"]
