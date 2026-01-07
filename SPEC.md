@@ -2,7 +2,7 @@
 
 ## Overview
 
-TweetHoarder is a Python CLI tool for archiving a user's Twitter/X data (likes, bookmarks, tweets, reposts) locally. It uses cookie-based authentication to access Twitter's internal GraphQL API (no paid API key required), with architecture ported from the [bird](https://github.com/steipete/bird) TypeScript project.
+TweetHoarder is a Python CLI tool for archiving a user's Twitter/X data (likes, bookmarks, tweets, reposts, replies, and home timeline/feed) locally. It uses cookie-based authentication to access Twitter's internal GraphQL API (no paid API key required), with architecture ported from the [bird](https://github.com/steipete/bird) TypeScript project.
 
 ## Core Requirements Summary
 
@@ -19,15 +19,16 @@ TweetHoarder is a Python CLI tool for archiving a user's Twitter/X data (likes, 
 | CLI Style | Typer with subcommands |
 | Tweet Limit | Default 100 tweets, `--all` for unlimited |
 | DB Schema | Denormalized (single table with embedded JSON for complex fields) |
-| Export Formats | JSON, Markdown, single-file HTML viewer |
+| Export Formats | JSON, Markdown, CSV, single-file HTML viewer with virtual scrolling |
 | Daemon Mode | No (user runs manually or sets up external cron) |
-| Rate Limiting | Exponential backoff |
-| Query ID Refresh | Auto on 404 + manual `refresh-ids` command |
-| Output Style | Progress bar + key events |
-| Data Location | XDG-compliant (`~/.config/tweethoarder`, `~/.local/share/tweethoarder`) - directories created on first run |
+| Rate Limiting | Exponential backoff with adaptive rate limiting for threads |
+| Query ID Refresh | Auto on 404 + manual `refresh-ids` command + static fallbacks |
+| Output Style | Progress bar + key events (via Rich) |
+| Data Location | XDG-compliant (`~/.config/tweethoarder`, `~/.local/share/tweethoarder`) |
 | Deleted Content | Keep forever (never remove from local DB) |
 | HTTP Client | httpx (async support) |
-| Testing | Unit tests with mocks + integration tests with VCR.py |
+| Testing | Unit tests with mocks + integration tests with VCR.py + TDD guard |
+| Collection Types | likes, bookmarks, tweets, reposts, replies, feed |
 
 ---
 
@@ -43,17 +44,17 @@ tweethoarder/
 │       ├── cli/
 │       │   ├── __init__.py
 │       │   ├── main.py              # Typer app entry point
-│       │   ├── sync.py              # sync likes|bookmarks|tweets|reposts commands
-│       │   ├── export.py            # export json|markdown|html commands
+│       │   ├── sync.py              # sync likes|bookmarks|tweets|reposts|replies|posts|threads|feed
+│       │   ├── export.py            # export json|markdown|csv|html commands (HTML inline)
 │       │   ├── thread.py            # thread <tweet_id> command
 │       │   ├── stats.py             # stats command
+│       │   ├── config.py            # config show/set commands
 │       │   └── query_ids.py         # refresh-ids command
 │       ├── client/
 │       │   ├── __init__.py
 │       │   ├── base.py              # TwitterClient base class
-│       │   ├── timelines.py         # Bookmarks, likes fetching
-│       │   ├── user_tweets.py       # User tweets, reposts
-│       │   ├── threads.py           # Thread/conversation fetching
+│       │   ├── timelines.py         # Bookmarks, likes, home timeline fetching
+│       │   ├── features.py          # GraphQL feature flags (ported from bird)
 │       │   └── types.py             # Pydantic models for API responses
 │       ├── auth/
 │       │   ├── __init__.py
@@ -68,13 +69,16 @@ tweethoarder/
 │       ├── storage/
 │       │   ├── __init__.py
 │       │   ├── database.py          # SQLite operations
-│       │   ├── models.py            # Database models
 │       │   └── checkpoint.py        # Sync progress checkpointing
 │       ├── export/
 │       │   ├── __init__.py
 │       │   ├── json_export.py       # JSON file export
-│       │   ├── markdown_export.py   # Markdown export
-│       │   └── html_export.py       # Single-file HTML viewer
+│       │   ├── markdown_export.py   # Markdown export with thread context
+│       │   ├── csv_export.py        # CSV export
+│       │   └── richtext.py          # Richtext formatting preservation
+│       ├── sync/
+│       │   ├── __init__.py
+│       │   └── sort_index.py        # Sort index generation for ordering
 │       ├── config.py                # Configuration management
 │       └── utils.py                 # Shared utilities
 ├── tests/
@@ -93,19 +97,30 @@ tweethoarder/
 ```toml
 [project]
 dependencies = [
-    "typer>=0.9.0",
-    "httpx>=0.27.0",
-    "rich>=13.0.0",          # Progress bars, pretty output
-    "pydantic>=2.0.0",       # Data validation
-    "secretstorage>=3.3.0",  # Chrome keyring decryption on Linux
+    "cryptography>=46.0.3",   # Chrome cookie decryption
+    "httpx>=0.28.1",          # HTTP client with async support
+    "loguru>=0.7.0",          # Logging
+    "pydantic>=2.12.5",       # Data validation
+    "rich>=14.2.0",           # Progress bars, pretty output
+    "secretstorage>=3.5.0",   # Chrome keyring decryption on Linux
+    "typer>=0.21.0",          # CLI framework
 ]
 
 [project.optional-dependencies]
 dev = [
+    "coverage>=7.9.2",
+    "deptry>=0.25.0",
+    "git-cliff>=3.0.1",
+    "prek>=0.1.0",            # Fast pre-commit replacement
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-cov>=6.2.1",
+    "pytest-sugar>=1.0.0",
+    "ruff>=0.11.12",
+    "sync-with-uv>=0.3.1",
+    "tdd-guard-pytest>=0.8.1",
     "vcrpy>=6.0.0",
-    "ruff>=0.1.0",
+    "zuban>=0.4.0",
 ]
 ```
 
@@ -148,11 +163,12 @@ CREATE TABLE tweets (
 -- Collections (which tweets belong to which collection)
 CREATE TABLE collections (
     tweet_id TEXT NOT NULL,
-    collection_type TEXT NOT NULL,          -- 'like', 'bookmark', 'tweet', 'repost'
+    collection_type TEXT NOT NULL,          -- 'like', 'bookmark', 'tweet', 'repost', 'reply', 'feed'
     bookmark_folder_id TEXT,                -- For bookmarks: folder ID (NULL = default)
     bookmark_folder_name TEXT,              -- For bookmarks: folder name
     added_at TEXT NOT NULL,                 -- When added to collection (from API or sync time)
     synced_at TEXT NOT NULL,                -- When we synced this
+    sort_index INTEGER,                     -- Order-preserving index for pagination
     PRIMARY KEY (tweet_id, collection_type),
     FOREIGN KEY (tweet_id) REFERENCES tweets(id)
 );
@@ -202,25 +218,55 @@ CREATE INDEX idx_collections_added ON collections(added_at);
 ```bash
 # Sync commands (explicit subcommands)
 # Note: Resume is automatic - interrupted syncs continue from last checkpoint
-tweethoarder sync likes [--count N] [--all] [--with-threads] [--thread-mode MODE]
-tweethoarder sync bookmarks [--count N] [--all] [--with-threads] [--thread-mode MODE]
-tweethoarder sync tweets [--count N] [--all] [--with-threads] [--thread-mode MODE]
-tweethoarder sync reposts [--count N] [--all] [--with-threads] [--thread-mode MODE]
+tweethoarder sync likes [--count N] [--all] [--with-threads] [--thread-mode MODE] [--store-raw/--no-store-raw]
+tweethoarder sync bookmarks [--count N] [--all] [--with-threads] [--thread-mode MODE] [--store-raw/--no-store-raw]
+tweethoarder sync tweets [--count N] [--all] [--with-threads] [--thread-mode MODE] [--store-raw/--no-store-raw]
+tweethoarder sync reposts [--count N] [--all] [--with-threads] [--thread-mode MODE] [--store-raw/--no-store-raw]
+tweethoarder sync replies [--count N] [--all] [--with-threads] [--thread-mode MODE] [--store-raw/--no-store-raw]
+tweethoarder sync posts [--count N] [--all] [--with-threads] [--thread-mode MODE] [--store-raw/--no-store-raw]
+tweethoarder sync threads [--force]          # Batch thread fetching for tweets needing expansion
+tweethoarder sync feed [--hours N] [--all]   # Sync Following/home timeline (default: last 24h)
 
 # Thread fetching (on-demand)
 tweethoarder thread <tweet_id> [--mode MODE] [--limit N] [--depth N]
 
 # Export commands
-tweethoarder export json [--collection TYPE] [--output PATH]
-tweethoarder export markdown [--collection TYPE] [--output PATH]
-tweethoarder export html [--collection TYPE] [--output PATH]
+tweethoarder export json [--collection TYPE] [--output PATH] [--folder NAME]
+tweethoarder export markdown [--collection TYPE] [--output PATH] [--folder NAME]
+tweethoarder export csv [--collection TYPE] [--output PATH] [--folder NAME]
+tweethoarder export html [--collection TYPE] [--output PATH] [--folder NAME]
 
 # Utility commands
-tweethoarder stats                           # Show sync statistics
+tweethoarder stats                           # Show sync statistics with folder breakdown
 tweethoarder refresh-ids                     # Force refresh query IDs
 tweethoarder config show                     # Show current config
 tweethoarder config set KEY VALUE            # Set config value
 ```
+
+### Sync Command Details
+
+| Command | Description |
+|---------|-------------|
+| `sync likes` | Sync liked tweets |
+| `sync bookmarks` | Sync bookmarks (all folders) |
+| `sync tweets` | Sync user's original tweets (not replies) |
+| `sync reposts` | Sync user's retweets |
+| `sync replies` | Sync user's replies to other users |
+| `sync posts` | Combined sync of tweets + reposts in single API call |
+| `sync threads` | Batch thread fetching for tweets marked for expansion |
+| `sync feed` | Sync home timeline (Following feed) |
+
+### Common Sync Flags
+
+| Flag | Description |
+|------|-------------|
+| `--count N` | Limit to N tweets (default: 100) |
+| `--all` | Sync all available tweets (no limit) |
+| `--with-threads` | Expand threads for synced tweets |
+| `--thread-mode` | `thread` (author only) or `conversation` (all replies) |
+| `--store-raw/--no-store-raw` | Store raw JSON response (default: no) |
+| `--force` | For `sync threads`: re-fetch already expanded threads |
+| `--hours N` | For `sync feed`: fetch posts from last N hours (default: 24) |
 
 ### CLI Examples
 
@@ -239,11 +285,29 @@ $ tweethoarder sync tweets --count 500
 # Sync all tweets (may take a long time)
 $ tweethoarder sync tweets --all
 
+# Sync home timeline from the last 24 hours (default)
+$ tweethoarder sync feed
+
+# Sync home timeline from the last 48 hours
+$ tweethoarder sync feed --hours 48
+
+# Sync replies separately
+$ tweethoarder sync replies --all
+
 # Fetch thread context for a specific tweet
-$ tweethoarder thread 1234567890 --depth 5
+$ tweethoarder thread 1234567890
+
+# Batch expand threads for tweets needing expansion
+$ tweethoarder sync threads
 
 # Export to JSON
 $ tweethoarder export json --collection likes --output ~/likes.json
+
+# Export bookmarks from specific folder
+$ tweethoarder export json --collection bookmarks --folder "Read Later"
+
+# Export all collections to interactive HTML viewer
+$ tweethoarder export html --collection all --output ~/twitter-archive.html
 
 # View statistics
 $ tweethoarder stats
@@ -252,10 +316,15 @@ $ tweethoarder stats
 ├──────────────────────────────────────┤
 │ Likes:      5,234 (last: 2h ago)     │
 │ Bookmarks:    892 (last: 2h ago)     │
+│   - Default:  500                    │
+│   - Work:     250                    │
+│   - Read Later: 142                  │
 │ Tweets:       423 (last: 1d ago)     │
 │ Reposts:      156 (last: 1d ago)     │
-│ Total Tweets: 6,705                  │
-│ Database:     45.2 MB                │
+│ Replies:       89 (last: 1d ago)     │
+│ Feed:       1,200 (last: 3h ago)     │
+│ Total Tweets: 8,094                  │
+│ Database:     52.3 MB                │
 ╰──────────────────────────────────────╯
 ```
 
@@ -543,13 +612,19 @@ async def test_fetch_likes():
 2. ✅ Query ID management (baseline + cache)
 3. ✅ Query ID refresh from bundles
 4. ✅ Rate limiting with exponential backoff
+5. ✅ Feature flags ported from bird
 
 ### Phase 4: Sync Commands ✅
 1. ✅ Likes sync with pagination
 2. ✅ Bookmarks sync (including folders)
 3. ✅ User tweets sync
 4. ✅ Reposts sync
-5. ✅ Checkpointing infrastructure
+5. ✅ Replies sync (user's replies to others)
+6. ✅ Posts sync (tweets + reposts combined)
+7. ✅ Feed sync (home timeline/Following)
+8. ✅ Batch thread sync command
+9. ✅ Checkpointing infrastructure
+10. ✅ Sort index for order preservation
 
 ### Phase 5: Additional Features ✅
 1. ✅ Thread fetching (on-demand) with thread/conversation modes
@@ -558,23 +633,33 @@ async def test_fetch_likes():
 4. ✅ Progress display
 5. ✅ Config show/set commands
 6. ✅ `--with-threads` sync flag for thread expansion
+7. ✅ `--store-raw` flag for raw JSON storage
 
 ### Phase 6: Export ✅
 1. ✅ JSON export
-2. ✅ Markdown export
-3. ✅ HTML single-file viewer (with embedded search/filtering)
-4. ✅ CSV export
+2. ✅ Markdown export with thread context
+3. ✅ CSV export
+4. ✅ HTML single-file viewer:
+   - ✅ Virtual scrolling for performance
+   - ✅ Light/dark theme switcher
+   - ✅ Full-text search with faceted filtering
+   - ✅ Author/type/media/date filtering
+   - ✅ Copy as markdown with quoted tweets
+   - ✅ Deduplication logic
+   - ✅ Richtext formatting preservation
 5. ✅ `--folder` flag for bookmark filtering
 
-### Phase 7: Testing & Polish 🟡
-1. ✅ Unit tests with mocks (297 tests)
-2. ⏳ Integration tests with VCR.py
+### Phase 7: Testing & Polish ✅
+1. ✅ Unit tests with mocks (300+ tests)
+2. ✅ Integration tests with VCR.py cassettes
 3. ✅ Error handling edge cases
 4. ✅ Documentation (README.md)
+5. ✅ TDD guard enforcement
 
 ### Phase 8: Query ID Resilience ✅
-1. ✅ Static fallback query IDs for all operations
+1. ✅ Static fallback query IDs for all 11 operations
 2. ✅ Dynamic fallback (auto-refresh on missing ID)
+3. ✅ HomeLatestTimeline support for feed sync
 
 **Legend:** ✅ Complete | 🟡 Partial | ⏳ Pending
 
@@ -929,7 +1014,24 @@ Saved to database.
 
 ### Overview
 
-The HTML export generates a **single self-contained file** with embedded search and filtering capabilities. All tweet data is embedded as JSON, with JavaScript providing interactive features.
+The HTML export generates a **single self-contained file** with embedded search, filtering, and interactive features. All tweet data is embedded as JSON, with JavaScript providing a Twitter-like viewing experience with virtual scrolling for performance.
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Virtual Scrolling** | Renders only visible tweets for smooth performance with 10,000+ tweets |
+| **Theme Switcher** | Light/dark mode toggle persisted in localStorage |
+| **Full-text Search** | Instant search across tweet text, author names |
+| **Author Filtering** | Click authors to filter; live facet counts update |
+| **Type Filtering** | Filter by collection type when using `--collection all` |
+| **Media Filtering** | Filter by photo, video, link, or text-only |
+| **Date Range** | Filter by date range with month picker |
+| **Copy as Markdown** | One-click copy of tweet as formatted markdown |
+| **Quoted Tweets** | Inline rendering of quoted tweets with visual attribution |
+| **Richtext Formatting** | Preserves bold, italic, links from original tweets |
+| **Deduplication** | Merges reposts with originals; highlights thread tweets |
+| **Scrollbar** | Fixed scrollbar at screen edge for easier navigation |
 
 ### File Size Warning
 
@@ -939,143 +1041,75 @@ Warning: Exporting 25,000 tweets may create a large file (est. 45MB).
 Large files may load slowly in browsers. Continue? [y/N]
 ```
 
-**Warning thresholds:**
-- 20,000 tweets OR
-- Estimated file size > 100MB
+### UI Layout
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  TweetHoarder - Liked Tweets (5,234)            🌙 Toggle   │
+├─────────────────────────────────────────────────────────────┤
+│ ┌─────────────┐  ┌────────────────────────────────────────┐ │
+│ │  FILTERS    │  │  Tweet 1                          📋   │ │
+│ │             │  │  @author · Jan 1, 2025                 │ │
+│ │ Search...   │  │  Tweet content here with **bold**      │ │
+│ │             │  │  ┌──────────────────────────────────┐  │ │
+│ │ ▼ Authors   │  │  │ Quoted Tweet                     │  │ │
+│ │   @alice 42 │  │  │ @quoted_author                   │  │ │
+│ │   @bob   31 │  │  └──────────────────────────────────┘  │ │
+│ │             │  │  ♥ 1.2K  🔁 456  💬 89                 │ │
+│ │ ▼ Type      │  ├────────────────────────────────────────┤ │
+│ │   □ likes   │  │  Tweet 2 ...                           │ │
+│ │   □ tweets  │  │  ...                                   │ │
+│ │             │  │                                        │ │
+│ │ ▼ Media     │  │  (virtual scroll renders visible only) │ │
+│ │   □ photo   │  │                                        │ │
+│ │   □ video   │  │                                        │ │
+│ └─────────────┘  └────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ### Search & Filter Features
 
 #### Pre-Computed Facets (at export time)
 
-These facets are computed during export for instant display:
-
 1. **Authors**: List of all authors with tweet counts
-2. **Months**: Year-month buckets with counts
+2. **Collection Types**: When using `--collection all`, shows type breakdown
 3. **Media Types**: has_photo, has_video, has_link, text_only
 
 #### Live-Computed Filters
 
-These update dynamically as user applies filters:
-
-1. **Full-text search**: Searches tweet text content
+1. **Full-text search**: Instant search with debouncing
 2. **Date range**: Custom start/end dates
-3. **Engagement thresholds**: Min likes, min retweets
-4. **Custom author filter**: Filter to specific authors
+3. **Author filter**: Click to add/remove authors from filter
+4. **Type filter**: Filter by collection type (likes, bookmarks, tweets, etc.)
 
-### HTML Structure
+### Copy as Markdown
 
-```html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TweetHoarder Export - Likes</title>
-    <style>
-        /* Inline CSS - responsive, clean design */
-        /* ~5KB minified */
-    </style>
-</head>
-<body>
-    <header>
-        <h1>Liked Tweets</h1>
-        <p>Exported: 2025-01-03 | 5,234 tweets</p>
-    </header>
+Each tweet has a copy button that generates markdown like:
 
-    <aside id="filters">
-        <!-- Search box -->
-        <input type="search" id="search" placeholder="Search tweets...">
+```markdown
+> **Tweet content with formatting preserved**
+>
+> ![Image](https://pbs.twimg.com/media/xxx.jpg)
+>
+> > **Quoted tweet content**
+> > — @quoted_author
 
-        <!-- Pre-computed facets -->
-        <details open>
-            <summary>Authors (127)</summary>
-            <ul id="author-facets">
-                <!-- Populated from precomputed data -->
-            </ul>
-        </details>
-
-        <details>
-            <summary>Date Range</summary>
-            <input type="month" id="date-from">
-            <input type="month" id="date-to">
-        </details>
-
-        <details>
-            <summary>Media Type</summary>
-            <label><input type="checkbox" value="photo"> Has Photo (1,234)</label>
-            <label><input type="checkbox" value="video"> Has Video (567)</label>
-            <label><input type="checkbox" value="link"> Has Link (2,100)</label>
-        </details>
-    </aside>
-
-    <main id="tweets">
-        <!-- Tweets rendered here by JS -->
-    </main>
-
-    <script>
-        // Embedded tweet data
-        const TWEETS = [/* ... */];
-        const FACETS = {
-            authors: [/* {username, count} */],
-            months: [/* {month, count} */],
-            media: {photo: 1234, video: 567, link: 2100, text_only: 1333}
-        };
-
-        // Search and filter logic (~10KB minified)
-    </script>
-</body>
-</html>
+— @author ([source](https://x.com/author/status/123))
 ```
 
-### Search Implementation
+### Deduplication Logic
 
-```javascript
-// Simplified search logic
-function searchTweets(query, filters) {
-    return TWEETS.filter(tweet => {
-        // Full-text search
-        if (query && !tweet.text.toLowerCase().includes(query.toLowerCase())) {
-            return false;
-        }
+When a tweet appears in multiple collections (e.g., liked AND retweeted):
+- Shows tweet once with merged metadata
+- Indicates all collection types it appears in
+- Thread tweets marked with visual indicator
 
-        // Author filter
-        if (filters.authors.length && !filters.authors.includes(tweet.author.username)) {
-            return false;
-        }
+### Performance Optimizations
 
-        // Date range
-        if (filters.dateFrom && tweet.created_at < filters.dateFrom) return false;
-        if (filters.dateTo && tweet.created_at > filters.dateTo) return false;
-
-        // Media type
-        if (filters.mediaTypes.length) {
-            const hasPhoto = tweet.media?.some(m => m.type === 'photo');
-            const hasVideo = tweet.media?.some(m => m.type === 'video');
-            const hasLink = tweet.urls?.length > 0;
-
-            const matches = filters.mediaTypes.some(type => {
-                if (type === 'photo') return hasPhoto;
-                if (type === 'video') return hasVideo;
-                if (type === 'link') return hasLink;
-                if (type === 'text_only') return !hasPhoto && !hasVideo && !hasLink;
-            });
-            if (!matches) return false;
-        }
-
-        return true;
-    });
-}
-
-// Update facet counts after filtering
-function updateFacetCounts(filteredTweets) {
-    // Live compute author counts for current filter
-    const authorCounts = {};
-    filteredTweets.forEach(t => {
-        authorCounts[t.author.username] = (authorCounts[t.author.username] || 0) + 1;
-    });
-    // Update UI...
-}
-```
+- **Virtual scrolling**: Only renders ~20 visible tweets at a time
+- **Debounced search**: 150ms delay before filtering
+- **Lazy facet computation**: Only recalculates on filter change
+- **Minimal DOM**: Single-file with inlined CSS/JS (~50KB base)
 
 ---
 
@@ -1127,25 +1161,27 @@ Folder information is already stored in the `collections` table:
 
 ## Query ID Resilience
 
-### Current Issue
+### Implementation Status: ✅ Complete
 
-The `UserTweets` operation is used in sync but missing from `FALLBACK_QUERY_IDS`.
+All required GraphQL operations now have fallback query IDs.
 
-### Solution: Both Static + Dynamic Fallback
+### Solution: Both Static + Dynamic Fallback ✅
 
-1. **Add known IDs to constants.py**:
+1. **Known IDs in constants.py** (all operations covered):
 
 ```python
 FALLBACK_QUERY_IDS = {
-    "Bookmarks": "...",
-    "BookmarkFolderTimeline": "...",
-    "Likes": "...",
-    "TweetDetail": "...",
-    "SearchTimeline": "...",
-    "UserTweets": "...",           # ADD THIS
-    "UserTweetsAndReplies": "...", # ADD THIS
-    "Following": "...",
-    "Followers": "...",
+    "Bookmarks": "RV1g3b8n_SGOHwkqKYSCFw",
+    "BookmarkFolderTimeline": "KJIQpsvxrTfRIlbaRIySHQ",
+    "Likes": "JR2gceKucIKcVNB_9JkhsA",
+    "TweetDetail": "97JF30KziU00483E_8elBA",
+    "SearchTimeline": "M1jEez78PEfVfbQLvlWMvQ",
+    "UserArticlesTweets": "8zBy9h4L90aDL02RsBcCFg",
+    "UserTweets": "Wms1GvIiHXAPBaCr9KblaA",
+    "UserTweetsAndReplies": "_P1zJA2kS9W1PLHKdThsrg",
+    "Following": "BEkNpEt5pNETESoqMsTEGA",
+    "Followers": "kuFUYP9eV1FPoEy4N-pi7w",
+    "HomeLatestTimeline": "iOEZpOdfekFsxSlPQCQtPg",
 }
 ```
 
@@ -1351,30 +1387,3 @@ SELECT * FROM sync_progress;
 SELECT * FROM threads WHERE is_complete = FALSE;
 ```
 
----
-
-## Updated Implementation Phases
-
-### Phase 5: Additional Features ✅
-
-1. ✅ Quoted tweet resolution
-2. ✅ Stats command (with folder breakdown)
-3. ✅ Progress display
-4. ✅ Config show/set commands
-5. ✅ **Thread command** - Full implementation with thread/conversation modes
-6. ✅ **--with-threads sync flag** - Thread expansion during sync
-
-### Phase 6: Export ✅
-
-1. ✅ JSON export
-2. ✅ Markdown export
-3. ✅ CSV export
-4. ✅ **HTML export enhancement** - Faceted search, filtering, embedded JS
-5. ✅ **Bookmark folder filtering** - `--folder` flag for export commands
-
-### Phase 8: Query ID Resilience ✅
-
-1. ✅ Static fallback query IDs for all operations
-2. ✅ Dynamic fallback (auto-refresh on missing ID)
-
-**Legend:** ✅ Complete | 🟡 Partial | ⏳ Pending
