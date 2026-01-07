@@ -982,3 +982,162 @@ def test_export_json_posts_combines_tweets_replies_reposts(
     assert len(content["tweets"]) == 2
     tweet_ids = {t["id"] for t in content["tweets"]}
     assert tweet_ids == {"my_tweet", "my_repost"}
+
+
+def test_export_json_feed_collection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Export json should support feed collection."""
+    import json
+
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "feed_tweet_1",
+            "text": "From my feed",
+            "author_id": "user1",
+            "author_username": "feeduser",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "feed_tweet_1", "feed")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.json"
+    result = runner.invoke(
+        app,
+        ["export", "json", "--collection", "feed", "--output", str(output_path)],
+    )
+
+    assert result.exit_code == 0
+    content = json.loads(output_path.read_text())
+    assert len(content["tweets"]) == 1
+    assert content["tweets"][0]["id"] == "feed_tweet_1"
+
+
+def test_export_markdown_feed_has_correct_title(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Export markdown for feed should have 'Following Feed' as title."""
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "feed_tweet_1",
+            "text": "From my feed",
+            "author_id": "user1",
+            "author_username": "feeduser",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "feed_tweet_1", "feed")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.md"
+    result = runner.invoke(
+        app,
+        ["export", "markdown", "--collection", "feed", "--output", str(output_path)],
+    )
+
+    assert result.exit_code == 0
+    content = output_path.read_text()
+    # Should have explicit title, not fallback "Feed Tweets"
+    assert "# Following Feed" in content
+
+
+def test_export_html_feed_has_type_label(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Export html should have TYPE_LABELS entry for feed collection."""
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "feed_tweet_1",
+            "text": "From my feed",
+            "author_id": "user1",
+            "author_username": "feeduser",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "feed_tweet_1", "feed")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.html"
+    result = runner.invoke(
+        app,
+        ["export", "html", "--collection", "feed", "--output", str(output_path)],
+    )
+
+    assert result.exit_code == 0
+    content = output_path.read_text()
+    # Should have feed entry in TYPE_LABELS
+    assert "feed: 'Feed'" in content
+
+
+def test_export_html_includes_engagement_stats(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Export html should include engagement stats (likes, retweets, replies, quotes)."""
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    data_dir = tmp_path / "tweethoarder"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    db_path = data_dir / "tweethoarder.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "stats_tweet_1",
+            "text": "Tweet with stats",
+            "author_id": "user1",
+            "author_username": "statsuser",
+            "created_at": "2025-01-01T12:00:00Z",
+            "reply_count": 10,
+            "retweet_count": 25,
+            "like_count": 100,
+            "quote_count": 5,
+        },
+    )
+    add_to_collection(db_path, "stats_tweet_1", "feed")
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    output_path = tmp_path / "output.html"
+    result = runner.invoke(
+        app,
+        ["export", "html", "--collection", "feed", "--output", str(output_path)],
+    )
+
+    assert result.exit_code == 0
+    content = output_path.read_text()
+    # Should include engagement stats fields in TWEETS data
+    assert "reply_count" in content
+    assert "retweet_count" in content
+    assert "like_count" in content
+    assert "quote_count" in content
+    # Should have renderStats function
+    assert "renderStats" in content
+    # renderStats should be called in renderSingleTweet
+    assert "${renderStats(t)}" in content
+    # Should have CSS for tweet-stats
+    assert ".tweet-stats" in content

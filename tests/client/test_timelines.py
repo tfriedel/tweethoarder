@@ -564,6 +564,64 @@ def test_extract_tweet_data_extracts_retweeted_tweet_id() -> None:
     assert result["retweeted_tweet_id"] == "555"
 
 
+def test_extract_tweet_data_extracts_stats_from_original_for_retweets() -> None:
+    """extract_tweet_data should get stats from original tweet for retweets."""
+    from tweethoarder.client.timelines import extract_tweet_data
+
+    raw_tweet = {
+        "rest_id": "123",
+        "core": {
+            "user_results": {
+                "result": {
+                    "rest_id": "retweeter_id",
+                    "core": {"screen_name": "retweeter", "name": "Retweeter"},
+                }
+            }
+        },
+        "legacy": {
+            "full_text": "RT @original: Great tweet!",
+            "created_at": "Wed Jan 01 12:00:00 +0000 2025",
+            "conversation_id_str": "123",
+            # Retweet wrapper has minimal stats
+            "reply_count": 0,
+            "retweet_count": 1,
+            "favorite_count": 0,
+            "quote_count": 0,
+            "retweeted_status_result": {
+                "result": {
+                    "rest_id": "original_tweet_id",
+                    "core": {
+                        "user_results": {
+                            "result": {
+                                "rest_id": "original_author_id",
+                                "core": {"screen_name": "original", "name": "Original"},
+                            }
+                        }
+                    },
+                    "legacy": {
+                        "full_text": "Great tweet!",
+                        "created_at": "Wed Jan 01 10:00:00 +0000 2025",
+                        "conversation_id_str": "original_tweet_id",
+                        # Original tweet has the real stats
+                        "reply_count": 42,
+                        "retweet_count": 100,
+                        "favorite_count": 500,
+                        "quote_count": 15,
+                    },
+                },
+            },
+        },
+    }
+
+    result = extract_tweet_data(raw_tweet)
+
+    # Should use stats from original tweet, not retweet wrapper
+    assert result["reply_count"] == 42
+    assert result["retweet_count"] == 100
+    assert result["like_count"] == 500
+    assert result["quote_count"] == 15
+
+
 def test_extract_tweet_data_extracts_urls_json() -> None:
     """extract_tweet_data should extract urls from entities."""
     from tweethoarder.client.timelines import extract_tweet_data
@@ -1355,3 +1413,212 @@ def test_fetch_user_tweets_and_replies_page_exists() -> None:
     from tweethoarder.client.timelines import fetch_user_tweets_and_replies_page
 
     assert callable(fetch_user_tweets_and_replies_page)
+
+
+def test_build_home_timeline_url_includes_query_id() -> None:
+    """build_home_timeline_url should include the HomeLatestTimeline query ID in the path."""
+    from tweethoarder.client.timelines import build_home_timeline_url
+
+    url = build_home_timeline_url(query_id="HOME123")
+
+    assert "HOME123" in url
+    assert "/graphql/" in url
+    assert "HomeLatestTimeline" in url
+
+
+def test_build_home_timeline_url_includes_features() -> None:
+    """build_home_timeline_url should include features query param."""
+    from tweethoarder.client.timelines import build_home_timeline_url
+
+    url = build_home_timeline_url(query_id="HOME123")
+
+    assert "features" in url
+
+
+def test_build_home_timeline_url_includes_variables() -> None:
+    """build_home_timeline_url should include variables query param."""
+    from tweethoarder.client.timelines import build_home_timeline_url
+
+    url = build_home_timeline_url(query_id="HOME123")
+
+    assert "variables" in url
+
+
+def test_build_home_timeline_url_includes_cursor_when_provided() -> None:
+    """build_home_timeline_url should include cursor for pagination when provided."""
+    from tweethoarder.client.timelines import build_home_timeline_url
+
+    url = build_home_timeline_url(query_id="HOME123", cursor="cursor_xyz")
+
+    assert "cursor_xyz" in url
+
+
+def test_build_home_timeline_url_includes_seen_tweet_ids() -> None:
+    """build_home_timeline_url should include seenTweetIds in variables."""
+    import json
+    from urllib.parse import parse_qs, urlparse
+
+    from tweethoarder.client.timelines import build_home_timeline_url
+
+    url = build_home_timeline_url(query_id="HOME123")
+    parsed = urlparse(url)
+    query_params: dict[str, list[str]] = parse_qs(parsed.query)
+    variables = json.loads(query_params["variables"][0])
+
+    assert "seenTweetIds" in variables
+    assert variables["seenTweetIds"] == []
+
+
+def test_build_home_timeline_url_includes_promoted_content_flag() -> None:
+    """build_home_timeline_url should include includePromotedContent in variables."""
+    import json
+    from urllib.parse import parse_qs, urlparse
+
+    from tweethoarder.client.timelines import build_home_timeline_url
+
+    url = build_home_timeline_url(query_id="HOME123")
+    parsed = urlparse(url)
+    query_params: dict[str, list[str]] = parse_qs(parsed.query)
+    variables = json.loads(query_params["variables"][0])
+
+    assert "includePromotedContent" in variables
+    assert variables["includePromotedContent"] is False
+
+
+def test_parse_home_timeline_response_extracts_tweets() -> None:
+    """parse_home_timeline_response should extract tweet entries from API response."""
+    from tweethoarder.client.timelines import parse_home_timeline_response
+
+    response = {
+        "data": {
+            "home": {
+                "home_timeline_urt": {
+                    "instructions": [
+                        {
+                            "type": "TimelineAddEntries",
+                            "entries": [
+                                {
+                                    "entryId": "tweet-123",
+                                    "sortIndex": "1234567890",
+                                    "content": {
+                                        "entryType": "TimelineTimelineItem",
+                                        "itemContent": {
+                                            "tweet_results": {
+                                                "result": {
+                                                    "rest_id": "123",
+                                                    "legacy": {"full_text": "Hello"},
+                                                }
+                                            }
+                                        },
+                                    },
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        }
+    }
+
+    entries, _cursor = parse_home_timeline_response(response)
+
+    assert len(entries) == 1
+    assert entries[0]["tweet"]["rest_id"] == "123"
+
+
+def test_parse_home_timeline_response_extracts_cursor() -> None:
+    """parse_home_timeline_response should extract the next cursor for pagination."""
+    from tweethoarder.client.timelines import parse_home_timeline_response
+
+    response = {
+        "data": {
+            "home": {
+                "home_timeline_urt": {
+                    "instructions": [
+                        {
+                            "type": "TimelineAddEntries",
+                            "entries": [
+                                {
+                                    "entryId": "cursor-bottom-12345",
+                                    "content": {
+                                        "entryType": "TimelineTimelineCursor",
+                                        "value": "next_cursor_value",
+                                        "cursorType": "Bottom",
+                                    },
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        }
+    }
+
+    _tweets, cursor = parse_home_timeline_response(response)
+
+    assert cursor == "next_cursor_value"
+
+
+def test_fetch_home_timeline_page_exists() -> None:
+    """fetch_home_timeline_page function should be importable."""
+    from tweethoarder.client.timelines import fetch_home_timeline_page
+
+    assert callable(fetch_home_timeline_page)
+
+
+@pytest.mark.asyncio
+async def test_fetch_home_timeline_page_returns_dict() -> None:
+    """fetch_home_timeline_page should return parsed JSON response."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_home_timeline_page
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"data": {"home": {"home_timeline_urt": {}}}}
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = mock_response
+
+    result = await fetch_home_timeline_page(
+        client=mock_client,
+        query_id="HOME123",
+    )
+
+    assert isinstance(result, dict)
+    assert "data" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_home_timeline_page_calls_refresh_callback_on_404() -> None:
+    """Fetch_home_timeline_page should call on_query_id_refresh callback on 404."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    import httpx
+
+    from tweethoarder.client.timelines import fetch_home_timeline_page
+
+    not_found_response = MagicMock()
+    not_found_response.status_code = 404
+    not_found_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Not found", request=MagicMock(), response=not_found_response
+    )
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"home": {"home_timeline_urt": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [not_found_response, success_response]
+
+    refresh_callback = AsyncMock(return_value="NEW_QUERY_ID")
+
+    result = await fetch_home_timeline_page(
+        client=mock_client,
+        query_id="OLD_QUERY_ID",
+        on_query_id_refresh=refresh_callback,
+    )
+
+    refresh_callback.assert_called_once()
+    assert result == {"data": {"home": {"home_timeline_urt": {}}}}
