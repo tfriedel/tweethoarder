@@ -1871,3 +1871,721 @@ def test_html_export_does_not_deduplicate_replies_to_others(tmp_path: Path) -> N
         # Second should be the reply to other user (separate entry)
         assert tweets[1]["id"] == "1003"
         assert tweets[1]["highlighted_tweet_ids"] == ["1003"]
+
+
+def test_html_export_has_copy_as_markdown_function(tmp_path: Path) -> None:
+    """HTML export should have a copyAsMarkdown JavaScript function."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have copyAsMarkdown function
+        assert "function copyAsMarkdown" in content
+
+
+def test_html_export_has_copy_link_next_to_view(tmp_path: Path) -> None:
+    """HTML export should have a Copy link next to the View link."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have Copy link in template (View | Copy pattern)
+        assert ">View</a>" in content
+        assert ">Copy</a>" in content
+
+
+def test_html_export_thread_has_copy_link(tmp_path: Path) -> None:
+    """HTML export should have Copy link for threads too."""
+    # Thread with 2 tweets
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "First tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+            "conversation_id": "1",
+        }
+    ]
+    thread_tweets = [
+        {
+            "id": "1",
+            "text": "First tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+            "conversation_id": "1",
+        },
+        {
+            "id": "2",
+            "text": "Second tweet in thread",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:01:00Z",
+            "conversation_id": "1",
+            "in_reply_to_tweet_id": "1",
+            "in_reply_to_user_id": "user1",
+        },
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = thread_tweets
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Thread template should also have Copy link
+        # The thread template has a specific pattern with article class='thread
+        assert "article class='thread" in content
+        # Count Copy links - should be at least 2 (one for threads, one for single tweets)
+        copy_count = content.count(">Copy</a>")
+        assert copy_count >= 2, f"Expected at least 2 Copy links, found {copy_count}"
+
+
+def test_html_export_copy_markdown_uses_clipboard_api(tmp_path: Path) -> None:
+    """CopyAsMarkdown should use navigator.clipboard.writeText."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should use navigator.clipboard.writeText
+        assert "navigator.clipboard.writeText" in content
+
+
+def test_html_export_has_format_tweet_as_markdown_function(tmp_path: Path) -> None:
+    """HTML export should have a function to format tweet as markdown."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have a function to format tweet as markdown
+        assert "function formatTweetAsMarkdown" in content
+
+
+def test_html_export_format_markdown_includes_view_link(tmp_path: Path) -> None:
+    """FormatTweetAsMarkdown should include a View on X link."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # formatTweetAsMarkdown should build x.com URL and View on X link
+        assert "x.com" in content
+        assert "View on X" in content
+
+
+def test_html_export_format_markdown_includes_author_info(tmp_path: Path) -> None:
+    """FormatTweetAsMarkdown should include author username and display name."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "author_display_name": "Test User",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # formatTweetAsMarkdown should include author username with @ and bold
+        assert "t.author_username" in content
+        assert "t.author_display_name" in content
+
+
+def test_html_export_format_markdown_includes_tweet_text(tmp_path: Path) -> None:
+    """FormatTweetAsMarkdown should include tweet text."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # formatTweetAsMarkdown should include tweet text (t.text)
+        assert "t.text" in content
+
+
+def test_html_export_has_url_expansion_for_markdown(tmp_path: Path) -> None:
+    """HTML export should have a function to expand URLs for markdown copy."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have a function to get plain text with expanded URLs
+        assert "function getPlainTextWithUrls" in content
+
+
+def test_html_export_url_expansion_replaces_tco_urls(tmp_path: Path) -> None:
+    """GetPlainTextWithUrls should replace t.co URLs with expanded URLs."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # getPlainTextWithUrls should parse URLs JSON and replace
+        assert "getPlainTextWithUrls" in content
+        # Should replace t.co URLs
+        assert "t.co" in content
+
+
+def test_html_export_copy_link_calls_format_markdown(tmp_path: Path) -> None:
+    """Copy link onclick should call formatTweetAsMarkdown."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # onclick should call formatTweetAsMarkdown
+        assert "formatTweetAsMarkdown" in content
+        # Copy link should invoke both format and copy
+        assert "copyAsMarkdown(formatTweetAsMarkdown" in content
+
+
+def test_html_export_format_markdown_detailed_format(tmp_path: Path) -> None:
+    """FormatTweetAsMarkdown should return detailed format with author, text, link."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "author_display_name": "Test User",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # formatTweetAsMarkdown should format with bold @username and display name
+        assert "**@${t.author_username}**" in content
+        # Should call getPlainTextWithUrls for the text
+        assert "getPlainTextWithUrls(t.text" in content
+
+
+def test_html_export_format_markdown_includes_display_name(tmp_path: Path) -> None:
+    """FormatTweetAsMarkdown should include display name in parentheses."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "author_display_name": "Test User",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should include display name reference with parentheses
+        # The format should be: **@username** (Display Name)
+        assert "t.author_display_name" in content
+        assert "(${" in content  # Has template literal with parentheses
+
+
+def test_html_export_has_handle_copy_function(tmp_path: Path) -> None:
+    """HTML export should have a handleCopy convenience function."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # Should have handleCopy function for shorter onclick handlers
+        assert "function handleCopy" in content
+
+
+def test_html_export_copy_link_uses_handle_copy(tmp_path: Path) -> None:
+    """Copy link onclick should use handleCopy for shorter lines."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # onclick should use hc(id) which looks up tweet from TWEETS_MAP internally
+        assert "function hc" in content
+        assert "hc('${t.id}')" in content
+
+
+def test_html_export_format_markdown_includes_quoted_tweet(tmp_path: Path) -> None:
+    """Format markdown should include quoted tweet when present."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Check out this quote",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+            "quoted_tweet_id": "2",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+        patch("tweethoarder.storage.database.get_tweets_by_ids") as mock_get_by_ids,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+        mock_get_by_ids.return_value = [
+            {
+                "id": "2",
+                "text": "Original quoted content",
+                "author_id": "user2",
+                "author_username": "quoteduser",
+                "created_at": "2025-01-01T11:00:00Z",
+            }
+        ]
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # formatTweetAsMarkdown should format quoted tweet with > blockquote
+        assert "formatQuotedTweetMarkdown" in content
+
+
+def test_html_export_format_markdown_includes_images(tmp_path: Path) -> None:
+    """Format markdown should include images when present."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Check out this photo",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # formatTweetAsMarkdown should format images as markdown
+        assert "formatMediaMarkdown" in content
+
+
+def test_html_export_format_media_markdown_parses_json(tmp_path: Path) -> None:
+    """Format media markdown should parse media JSON and return image syntax."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # formatMediaMarkdown should parse JSON and return markdown image syntax
+        assert "JSON.parse(mediaJson)" in content
+        assert "![](" in content
+
+
+def test_html_export_format_tweet_markdown_calls_format_media(tmp_path: Path) -> None:
+    """Format tweet markdown should call formatMediaMarkdown for images."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # formatTweetAsMarkdown should call formatMediaMarkdown with t.media_json
+        assert "formatMediaMarkdown(t.media_json)" in content
