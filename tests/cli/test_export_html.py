@@ -2837,3 +2837,40 @@ def test_html_export_format_media_markdown_skips_missing_urls(tmp_path: Path) ->
         assert "!m.media_url_https" in content or "m.media_url_https)" in content
         # Should never output undefined URLs
         assert "(undefined)" not in content
+
+
+def test_html_export_format_media_markdown_handles_parse_errors(tmp_path: Path) -> None:
+    """Copy as markdown should handle malformed JSON gracefully."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # formatMediaMarkdown should have try/catch like renderMedia
+        assert "try {" in content
+        # Should validate parsed value is an array
+        assert "Array.isArray" in content
