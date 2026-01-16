@@ -2718,3 +2718,46 @@ def test_html_export_renders_animated_gifs_with_autoplay(tmp_path: Path) -> None
         assert "autoplay" in content
         assert "loop" in content
         assert "muted" in content
+
+
+def test_html_export_dompurify_allows_video_tags(tmp_path: Path) -> None:
+    """DOMPurify allowlist should include video and source tags for video rendering."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # DOMPurify ALLOWED_TAGS should include video and source for video rendering
+        assert "'video'" in content or '"video"' in content
+        assert "'source'" in content or '"source"' in content
+        # ALLOWED_ATTR should include video attributes
+        assert "'controls'" in content or '"controls"' in content
+        assert "'autoplay'" in content or '"autoplay"' in content
+        assert "'loop'" in content or '"loop"' in content
+        assert "'muted'" in content or '"muted"' in content
+        assert "'playsinline'" in content or '"playsinline"' in content
+        assert "'preload'" in content or '"preload"' in content

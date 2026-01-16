@@ -984,10 +984,11 @@ def html(
         "  const template = document.createElement('template');",
         "  if (typeof DOMPurify !== 'undefined') {",
         "    template.innerHTML = DOMPurify.sanitize(htmlContent, {",
-        "      ALLOWED_TAGS: ['article','div','p','span','a','img',"
+        "      ALLOWED_TAGS: ['article','div','p','span','a','img','video','source',"
         "'strong','em','small','br','mark'],",
         "      ALLOWED_ATTR: ['class','href','src','alt','target','title','style','loading',"
-        "'data-src','onclick']",
+        "'data-src','onclick','controls','autoplay','loop','muted','playsinline','preload',"
+        "'type']",
         "    });",
         "  } else {",
         "    template.innerHTML = htmlContent;",
