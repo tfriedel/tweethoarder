@@ -1,2 +1,3 @@
-def hello() -> str:
-    return "Hello from tweethoarder!"
+from tweethoarder._hello import hello
+
+__all__ = ["hello"]
