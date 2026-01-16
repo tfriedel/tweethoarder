@@ -2628,3 +2628,249 @@ def test_html_export_has_tweet_content_wrapper_for_scrollbar_position(
         assert '<div id="tweet-content">' in content
         # CSS for tweet-content should center content and have borders
         assert "#tweet-content {" in content or "#tweet-content { " in content
+
+
+def test_html_export_renders_videos_with_video_tag(tmp_path: Path) -> None:
+    """HTML export should render videos with <video> tag instead of <img>."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Tweet with video",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+            "media_json": (
+                '[{"type": "video", "media_url_https": "https://pbs.twimg.com/thumb.jpg", '
+                '"video_url": "https://video.twimg.com/ext_tw_video/123/pu/vid/video.mp4", '
+                '"width": 1280, "height": 720}]'
+            ),
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # renderMedia should check media type and use <video> for videos
+        assert "m.type === 'video'" in content or 'm.type === "video"' in content
+        # Should use video_url for video source
+        assert "m.video_url" in content
+        # Should have video tag with controls
+        assert "<video" in content
+        assert "controls" in content
+
+
+def test_html_export_renders_animated_gifs_with_autoplay(tmp_path: Path) -> None:
+    """HTML export should render animated_gif with autoplay loop muted attributes."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Tweet with GIF",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+            "media_json": (
+                '[{"type": "animated_gif", '
+                '"media_url_https": "https://pbs.twimg.com/thumb.jpg", '
+                '"video_url": "https://video.twimg.com/tweet_video/gif.mp4", '
+                '"width": 480, "height": 270}]'
+            ),
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # renderMedia should check for animated_gif type
+        assert "m.type === 'animated_gif'" in content or 'm.type === "animated_gif"' in content
+        # GIFs should autoplay, loop, and be muted (like Twitter)
+        assert "autoplay" in content
+        assert "loop" in content
+        assert "muted" in content
+
+
+def test_html_export_dompurify_allows_video_tags(tmp_path: Path) -> None:
+    """DOMPurify allowlist should include video and source tags for video rendering."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # DOMPurify ALLOWED_TAGS should include video and source for video rendering
+        assert "'video'" in content or '"video"' in content
+        assert "'source'" in content or '"source"' in content
+        # ALLOWED_ATTR should include video attributes
+        assert "'controls'" in content or '"controls"' in content
+        assert "'autoplay'" in content or '"autoplay"' in content
+        assert "'loop'" in content or '"loop"' in content
+        assert "'muted'" in content or '"muted"' in content
+        assert "'playsinline'" in content or '"playsinline"' in content
+        assert "'preload'" in content or '"preload"' in content
+
+
+def test_html_export_format_media_markdown_handles_videos(tmp_path: Path) -> None:
+    """Copy as markdown should output video URL as link, not image markdown."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # formatMediaMarkdown should output [Video] link for video types
+        assert "formatMediaMarkdown" in content
+        assert "[Video]" in content or "[GIF]" in content
+
+
+def test_html_export_format_media_markdown_skips_missing_urls(tmp_path: Path) -> None:
+    """Copy as markdown should skip media items with missing or invalid URLs."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # formatMediaMarkdown should validate URLs before outputting
+        # Should check video_url exists for video/gif types
+        assert "!m.video_url" in content or "m.video_url)" in content
+        # Should check media_url_https exists for images
+        assert "!m.media_url_https" in content or "m.media_url_https)" in content
+        # Should never output undefined URLs
+        assert "(undefined)" not in content
+
+
+def test_html_export_format_media_markdown_handles_parse_errors(tmp_path: Path) -> None:
+    """Copy as markdown should handle malformed JSON gracefully."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # formatMediaMarkdown should have try/catch like renderMedia
+        assert "try {" in content
+        # Should validate parsed value is an array
+        assert "Array.isArray" in content
