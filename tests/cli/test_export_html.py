@@ -2761,3 +2761,39 @@ def test_html_export_dompurify_allows_video_tags(tmp_path: Path) -> None:
         assert "'muted'" in content or '"muted"' in content
         assert "'playsinline'" in content or '"playsinline"' in content
         assert "'preload'" in content or '"preload"' in content
+
+
+def test_html_export_format_media_markdown_handles_videos(tmp_path: Path) -> None:
+    """Copy as markdown should output video URL as link, not image markdown."""
+    mock_tweets = [
+        {
+            "id": "1",
+            "text": "Test tweet",
+            "author_id": "user1",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        }
+    ]
+
+    output_file = tmp_path / "test.html"
+
+    with (
+        patch("tweethoarder.config.get_data_dir") as mock_data_dir,
+        patch("tweethoarder.storage.database.get_tweets_by_collection") as mock_get_tweets,
+        patch("tweethoarder.storage.database.get_tweets_by_conversation_id") as mock_get_thread,
+    ):
+        mock_data_dir.return_value = tmp_path
+        mock_get_tweets.return_value = mock_tweets
+        mock_get_thread.return_value = []
+
+        result = runner.invoke(
+            app,
+            ["export", "html", "--collection", "likes", "--output", str(output_file)],
+        )
+
+        assert result.exit_code == 0
+        content = output_file.read_text()
+
+        # formatMediaMarkdown should output [Video] link for video types
+        assert "formatMediaMarkdown" in content
+        assert "[Video]" in content or "[GIF]" in content
