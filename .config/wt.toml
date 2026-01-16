@@ -3,7 +3,7 @@
 
 [post-create]
 # Copy env file from main worktree
-env = "[ -f '{{ main_worktree_path }}/.env' ] && cp '{{ main_worktree_path }}/.env' .env || true"
+env = "[ -f '{{ primary_worktree_path }}/.env' ] && cp '{{ primary_worktree_path }}/.env' .env || true"
 # Install all dependencies
 setup = "just setup"
 
