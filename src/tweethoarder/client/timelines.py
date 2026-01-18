@@ -109,15 +109,43 @@ async def fetch_tweet_detail_page(
     tweet_id: str,
     max_retries: int = 5,
     base_delay: float = 1.0,
+    cooldown_threshold: int = 3,
+    cooldown_duration: float = 300.0,
 ) -> dict[str, Any]:
-    """Fetch tweet detail page from the Twitter API with retry on rate limit."""
+    """Fetch tweet detail page from the Twitter API with retry on rate limit.
+
+    Args:
+        client: The httpx async client with authentication headers.
+        query_id: The GraphQL query ID for the TweetDetail endpoint.
+        tweet_id: The ID of the tweet to fetch details for.
+        max_retries: Maximum number of retry attempts on rate limit. Clamped to at least 1.
+        base_delay: Base delay in seconds for exponential backoff.
+        cooldown_threshold: Number of consecutive 429s before triggering cooldown.
+        cooldown_duration: Duration in seconds for cooldown after consecutive 429s.
+
+    Returns:
+        The parsed JSON response from the API.
+
+    Raises:
+        httpx.HTTPStatusError: If the API request fails after all retries.
+    """
+    max_retries = max(1, max_retries)
     url = build_tweet_detail_url(query_id, tweet_id)
     attempt = 0
+    consecutive_429s = 0
 
     while attempt < max_retries:
         response = await client.get(url)
 
         if response.status_code == 429:
+            consecutive_429s += 1
+
+            # Trigger cooldown after consecutive 429s threshold
+            if consecutive_429s >= cooldown_threshold:
+                await asyncio.sleep(cooldown_duration)
+                consecutive_429s = 0
+                continue
+
             if attempt < max_retries - 1:
                 delay = base_delay * (2**attempt)
                 await asyncio.sleep(delay)
@@ -125,6 +153,7 @@ async def fetch_tweet_detail_page(
                 continue
             response.raise_for_status()
 
+        consecutive_429s = 0
         response.raise_for_status()
         result: dict[str, Any] = response.json()
         return result
@@ -270,12 +299,33 @@ async def fetch_home_timeline_page(
     max_retries: int = 5,
     base_delay: float = 1.0,
     on_query_id_refresh: Callable[[], Awaitable[str]] | None = None,
+    cooldown_threshold: int = 3,
+    cooldown_duration: float = 300.0,
 ) -> dict[str, Any]:
-    """Fetch a page of home timeline from Twitter GraphQL API with retry on rate limit."""
+    """Fetch a page of home timeline from Twitter GraphQL API with retry on rate limit.
+
+    Args:
+        client: The httpx async client with authentication headers.
+        query_id: The GraphQL query ID for the HomeLatestTimeline endpoint.
+        cursor: Optional pagination cursor for fetching subsequent pages.
+        max_retries: Maximum number of retry attempts on rate limit. Clamped to at least 1.
+        base_delay: Base delay in seconds for exponential backoff.
+        on_query_id_refresh: Optional async callback to refresh query ID on 404.
+        cooldown_threshold: Number of consecutive 429s before triggering cooldown.
+        cooldown_duration: Duration in seconds for cooldown after consecutive 429s.
+
+    Returns:
+        The parsed JSON response from the API.
+
+    Raises:
+        httpx.HTTPStatusError: If the API request fails after all retries.
+    """
+    max_retries = max(1, max_retries)
     current_query_id = query_id
     url = build_home_timeline_url(current_query_id, cursor)
     refreshed = False
     attempt = 0
+    consecutive_429s = 0
 
     while attempt < max_retries:
         response = await client.get(url)
@@ -286,9 +336,18 @@ async def fetch_home_timeline_page(
             url = build_home_timeline_url(current_query_id, cursor)
             refreshed = True
             attempt = 0  # Reset attempts after refresh to give new ID a fair chance
+            consecutive_429s = 0
             continue
 
         if response.status_code == 429:
+            consecutive_429s += 1
+
+            # Trigger cooldown after consecutive 429s threshold
+            if consecutive_429s >= cooldown_threshold:
+                await asyncio.sleep(cooldown_duration)
+                consecutive_429s = 0
+                continue
+
             if attempt < max_retries - 1:
                 delay = base_delay * (2**attempt)
                 await asyncio.sleep(delay)
@@ -296,6 +355,7 @@ async def fetch_home_timeline_page(
                 continue
             response.raise_for_status()
 
+        consecutive_429s = 0
         response.raise_for_status()
         result: dict[str, Any] = response.json()
         return result
@@ -341,15 +401,44 @@ async def fetch_user_tweets_page(
     cursor: str | None = None,
     max_retries: int = 5,
     base_delay: float = 1.0,
+    cooldown_threshold: int = 3,
+    cooldown_duration: float = 300.0,
 ) -> dict[str, Any]:
-    """Fetch a page of user tweets from the Twitter API with retry on rate limit."""
+    """Fetch a page of user tweets from the Twitter API with retry on rate limit.
+
+    Args:
+        client: The httpx async client with authentication headers.
+        query_id: The GraphQL query ID for the UserTweets endpoint.
+        user_id: The Twitter user ID whose tweets to fetch.
+        cursor: Optional pagination cursor for fetching subsequent pages.
+        max_retries: Maximum number of retry attempts on rate limit. Clamped to at least 1.
+        base_delay: Base delay in seconds for exponential backoff.
+        cooldown_threshold: Number of consecutive 429s before triggering cooldown.
+        cooldown_duration: Duration in seconds for cooldown after consecutive 429s.
+
+    Returns:
+        The parsed JSON response from the API.
+
+    Raises:
+        httpx.HTTPStatusError: If the API request fails after all retries.
+    """
+    max_retries = max(1, max_retries)
     url = build_user_tweets_url(query_id, user_id, cursor)
     attempt = 0
+    consecutive_429s = 0
 
     while attempt < max_retries:
         response = await client.get(url)
 
         if response.status_code == 429:
+            consecutive_429s += 1
+
+            # Trigger cooldown after consecutive 429s threshold
+            if consecutive_429s >= cooldown_threshold:
+                await asyncio.sleep(cooldown_duration)
+                consecutive_429s = 0
+                continue
+
             if attempt < max_retries - 1:
                 delay = base_delay * (2**attempt)
                 await asyncio.sleep(delay)
@@ -357,6 +446,7 @@ async def fetch_user_tweets_page(
                 continue
             response.raise_for_status()
 
+        consecutive_429s = 0
         response.raise_for_status()
         result: dict[str, Any] = response.json()
         return result
@@ -371,15 +461,44 @@ async def fetch_user_tweets_and_replies_page(
     cursor: str | None = None,
     max_retries: int = 5,
     base_delay: float = 1.0,
+    cooldown_threshold: int = 3,
+    cooldown_duration: float = 300.0,
 ) -> dict[str, Any]:
-    """Fetch a page of user tweets and replies from the Twitter API with retry."""
+    """Fetch a page of user tweets and replies from the Twitter API with retry.
+
+    Args:
+        client: The httpx async client with authentication headers.
+        query_id: The GraphQL query ID for the UserTweetsAndReplies endpoint.
+        user_id: The Twitter user ID whose tweets and replies to fetch.
+        cursor: Optional pagination cursor for fetching subsequent pages.
+        max_retries: Maximum number of retry attempts on rate limit. Clamped to at least 1.
+        base_delay: Base delay in seconds for exponential backoff.
+        cooldown_threshold: Number of consecutive 429s before triggering cooldown.
+        cooldown_duration: Duration in seconds for cooldown after consecutive 429s.
+
+    Returns:
+        The parsed JSON response from the API.
+
+    Raises:
+        httpx.HTTPStatusError: If the API request fails after all retries.
+    """
+    max_retries = max(1, max_retries)
     url = build_user_tweets_and_replies_url(query_id, user_id, cursor)
     attempt = 0
+    consecutive_429s = 0
 
     while attempt < max_retries:
         response = await client.get(url)
 
         if response.status_code == 429:
+            consecutive_429s += 1
+
+            # Trigger cooldown after consecutive 429s threshold
+            if consecutive_429s >= cooldown_threshold:
+                await asyncio.sleep(cooldown_duration)
+                consecutive_429s = 0
+                continue
+
             if attempt < max_retries - 1:
                 delay = base_delay * (2**attempt)
                 await asyncio.sleep(delay)
@@ -387,6 +506,7 @@ async def fetch_user_tweets_and_replies_page(
                 continue
             response.raise_for_status()
 
+        consecutive_429s = 0
         response.raise_for_status()
         result: dict[str, Any] = response.json()
         return result
@@ -401,12 +521,33 @@ async def fetch_bookmarks_page(
     max_retries: int = 5,
     base_delay: float = 1.0,
     on_query_id_refresh: Callable[[], Awaitable[str]] | None = None,
+    cooldown_threshold: int = 3,
+    cooldown_duration: float = 300.0,
 ) -> dict[str, Any]:
-    """Fetch a page of bookmarks from the Twitter API with retry on rate limit."""
+    """Fetch a page of bookmarks from the Twitter API with retry on rate limit.
+
+    Args:
+        client: The httpx async client with authentication headers.
+        query_id: The GraphQL query ID for the Bookmarks endpoint.
+        cursor: Optional pagination cursor for fetching subsequent pages.
+        max_retries: Maximum number of retry attempts on rate limit. Clamped to at least 1.
+        base_delay: Base delay in seconds for exponential backoff.
+        on_query_id_refresh: Optional async callback to refresh query ID on 404.
+        cooldown_threshold: Number of consecutive 429s before triggering cooldown.
+        cooldown_duration: Duration in seconds for cooldown after consecutive 429s.
+
+    Returns:
+        The parsed JSON response from the API.
+
+    Raises:
+        httpx.HTTPStatusError: If the API request fails after all retries.
+    """
+    max_retries = max(1, max_retries)
     current_query_id = query_id
     url = build_bookmarks_url(current_query_id, cursor)
     refreshed = False
     attempt = 0
+    consecutive_429s = 0
 
     while attempt < max_retries:
         response = await client.get(url)
@@ -417,9 +558,18 @@ async def fetch_bookmarks_page(
             url = build_bookmarks_url(current_query_id, cursor)
             refreshed = True
             attempt = 0  # Reset attempts after refresh to give new ID a fair chance
+            consecutive_429s = 0
             continue
 
         if response.status_code == 429:
+            consecutive_429s += 1
+
+            # Trigger cooldown after consecutive 429s threshold
+            if consecutive_429s >= cooldown_threshold:
+                await asyncio.sleep(cooldown_duration)
+                consecutive_429s = 0
+                continue
+
             if attempt < max_retries - 1:
                 delay = base_delay * (2**attempt)
                 await asyncio.sleep(delay)
@@ -427,6 +577,7 @@ async def fetch_bookmarks_page(
                 continue
             response.raise_for_status()
 
+        consecutive_429s = 0
         response.raise_for_status()
         result: dict[str, Any] = response.json()
         return result
@@ -442,6 +593,8 @@ async def fetch_likes_page(
     max_retries: int = 5,
     base_delay: float = 1.0,
     on_query_id_refresh: Callable[[], Awaitable[str]] | None = None,
+    cooldown_threshold: int = 3,
+    cooldown_duration: float = 300.0,
 ) -> dict[str, Any]:
     """Fetch a page of likes from the Twitter API with retry on rate limit.
 
@@ -450,9 +603,11 @@ async def fetch_likes_page(
         query_id: The GraphQL query ID for the Likes endpoint.
         user_id: The Twitter user ID whose likes to fetch.
         cursor: Optional pagination cursor for fetching subsequent pages.
-        max_retries: Maximum number of retry attempts on rate limit.
+        max_retries: Maximum number of retry attempts on rate limit. Clamped to at least 1.
         base_delay: Base delay in seconds for exponential backoff.
         on_query_id_refresh: Optional async callback to refresh query ID on 404.
+        cooldown_threshold: Number of consecutive 429s before triggering cooldown.
+        cooldown_duration: Duration in seconds for cooldown after consecutive 429s.
 
     Returns:
         The parsed JSON response from the API.
@@ -460,10 +615,12 @@ async def fetch_likes_page(
     Raises:
         httpx.HTTPStatusError: If the API request fails after all retries.
     """
+    max_retries = max(1, max_retries)
     current_query_id = query_id
     url = build_likes_url(current_query_id, user_id, cursor)
     refreshed = False
     attempt = 0
+    consecutive_429s = 0
 
     while attempt < max_retries:
         response = await client.get(url)
@@ -474,9 +631,18 @@ async def fetch_likes_page(
             url = build_likes_url(current_query_id, user_id, cursor)
             refreshed = True
             attempt = 0  # Reset attempts after refresh to give new ID a fair chance
+            consecutive_429s = 0
             continue
 
         if response.status_code == 429:
+            consecutive_429s += 1
+
+            # Trigger cooldown after consecutive 429s threshold
+            if consecutive_429s >= cooldown_threshold:
+                await asyncio.sleep(cooldown_duration)
+                consecutive_429s = 0
+                continue
+
             if attempt < max_retries - 1:
                 delay = base_delay * (2**attempt)
                 await asyncio.sleep(delay)
@@ -484,6 +650,7 @@ async def fetch_likes_page(
                 continue
             response.raise_for_status()
 
+        consecutive_429s = 0
         response.raise_for_status()
         result: dict[str, Any] = response.json()
         return result
