@@ -107,13 +107,29 @@ async def fetch_tweet_detail_page(
     client: httpx.AsyncClient,
     query_id: str,
     tweet_id: str,
+    max_retries: int = 5,
+    base_delay: float = 1.0,
 ) -> dict[str, Any]:
-    """Fetch tweet detail page from the Twitter API."""
+    """Fetch tweet detail page from the Twitter API with retry on rate limit."""
     url = build_tweet_detail_url(query_id, tweet_id)
-    response = await client.get(url)
-    response.raise_for_status()
-    result: dict[str, Any] = response.json()
-    return result
+    attempt = 0
+
+    while attempt < max_retries:
+        response = await client.get(url)
+
+        if response.status_code == 429:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2**attempt)
+                await asyncio.sleep(delay)
+                attempt += 1
+                continue
+            response.raise_for_status()
+
+        response.raise_for_status()
+        result: dict[str, Any] = response.json()
+        return result
+
+    raise RuntimeError("Unreachable: retry loop should always return or raise")
 
 
 def build_bookmarks_url(query_id: str, cursor: str | None = None) -> str:
@@ -251,21 +267,39 @@ async def fetch_home_timeline_page(
     client: Any,
     query_id: str,
     cursor: str | None = None,
+    max_retries: int = 5,
+    base_delay: float = 1.0,
     on_query_id_refresh: Callable[[], Awaitable[str]] | None = None,
 ) -> dict[str, Any]:
-    """Fetch a page of home timeline from Twitter GraphQL API."""
+    """Fetch a page of home timeline from Twitter GraphQL API with retry on rate limit."""
     current_query_id = query_id
     url = build_home_timeline_url(current_query_id, cursor)
-    response = await client.get(url)
+    refreshed = False
+    attempt = 0
 
-    if response.status_code == 404 and on_query_id_refresh:
-        current_query_id = await on_query_id_refresh()
-        url = build_home_timeline_url(current_query_id, cursor)
+    while attempt < max_retries:
         response = await client.get(url)
 
-    response.raise_for_status()
-    result: dict[str, Any] = response.json()
-    return result
+        if response.status_code == 404 and on_query_id_refresh and not refreshed:
+            current_query_id = await on_query_id_refresh()
+            url = build_home_timeline_url(current_query_id, cursor)
+            refreshed = True
+            attempt = 0
+            continue
+
+        if response.status_code == 429:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2**attempt)
+                await asyncio.sleep(delay)
+                attempt += 1
+                continue
+            response.raise_for_status()
+
+        response.raise_for_status()
+        result: dict[str, Any] = response.json()
+        return result
+
+    raise RuntimeError("Unreachable: retry loop should always return or raise")
 
 
 def build_likes_url(query_id: str, user_id: str, cursor: str | None = None) -> str:
@@ -304,13 +338,29 @@ async def fetch_user_tweets_page(
     query_id: str,
     user_id: str,
     cursor: str | None = None,
+    max_retries: int = 5,
+    base_delay: float = 1.0,
 ) -> dict[str, Any]:
-    """Fetch a page of user tweets from the Twitter API."""
+    """Fetch a page of user tweets from the Twitter API with retry on rate limit."""
     url = build_user_tweets_url(query_id, user_id, cursor)
-    response = await client.get(url)
-    response.raise_for_status()
-    result: dict[str, Any] = response.json()
-    return result
+    attempt = 0
+
+    while attempt < max_retries:
+        response = await client.get(url)
+
+        if response.status_code == 429:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2**attempt)
+                await asyncio.sleep(delay)
+                attempt += 1
+                continue
+            response.raise_for_status()
+
+        response.raise_for_status()
+        result: dict[str, Any] = response.json()
+        return result
+
+    raise RuntimeError("Unreachable: retry loop should always return or raise")
 
 
 async def fetch_user_tweets_and_replies_page(
@@ -318,34 +368,68 @@ async def fetch_user_tweets_and_replies_page(
     query_id: str,
     user_id: str,
     cursor: str | None = None,
+    max_retries: int = 5,
+    base_delay: float = 1.0,
 ) -> dict[str, Any]:
-    """Fetch a page of user tweets and replies from the Twitter API."""
+    """Fetch a page of user tweets and replies from the Twitter API with retry."""
     url = build_user_tweets_and_replies_url(query_id, user_id, cursor)
-    response = await client.get(url)
-    response.raise_for_status()
-    result: dict[str, Any] = response.json()
-    return result
+    attempt = 0
+
+    while attempt < max_retries:
+        response = await client.get(url)
+
+        if response.status_code == 429:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2**attempt)
+                await asyncio.sleep(delay)
+                attempt += 1
+                continue
+            response.raise_for_status()
+
+        response.raise_for_status()
+        result: dict[str, Any] = response.json()
+        return result
+
+    raise RuntimeError("Unreachable: retry loop should always return or raise")
 
 
 async def fetch_bookmarks_page(
     client: httpx.AsyncClient,
     query_id: str,
     cursor: str | None = None,
+    max_retries: int = 5,
+    base_delay: float = 1.0,
     on_query_id_refresh: Callable[[], Awaitable[str]] | None = None,
 ) -> dict[str, Any]:
-    """Fetch a page of bookmarks from the Twitter API."""
+    """Fetch a page of bookmarks from the Twitter API with retry on rate limit."""
     current_query_id = query_id
     url = build_bookmarks_url(current_query_id, cursor)
-    response = await client.get(url)
+    refreshed = False
+    attempt = 0
 
-    if response.status_code == 404 and on_query_id_refresh:
-        current_query_id = await on_query_id_refresh()
-        url = build_bookmarks_url(current_query_id, cursor)
+    while attempt < max_retries:
         response = await client.get(url)
 
-    response.raise_for_status()
-    result: dict[str, Any] = response.json()
-    return result
+        if response.status_code == 404 and on_query_id_refresh and not refreshed:
+            current_query_id = await on_query_id_refresh()
+            url = build_bookmarks_url(current_query_id, cursor)
+            refreshed = True
+            attempt = 0
+            continue
+
+        if response.status_code == 429:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2**attempt)
+                await asyncio.sleep(delay)
+                attempt += 1
+                continue
+            response.raise_for_status()
+
+        response.raise_for_status()
+        result: dict[str, Any] = response.json()
+        return result
+
+    raise RuntimeError("Unreachable: retry loop should always return or raise")
 
 
 async def fetch_likes_page(

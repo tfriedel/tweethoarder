@@ -1020,6 +1020,35 @@ async def test_fetch_bookmarks_page_calls_refresh_callback_on_404() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fetch_bookmarks_page_retries_on_429() -> None:
+    """fetch_bookmarks_page should retry on 429 rate limit with exponential backoff."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_bookmarks_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"bookmark_timeline_v2": {}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [rate_limit_response, success_response]
+
+    result = await fetch_bookmarks_page(
+        client=mock_client,
+        query_id="BOOK123",
+        max_retries=5,
+        base_delay=0.01,
+    )
+
+    assert mock_client.get.call_count == 2
+    assert "data" in result
+
+
+@pytest.mark.asyncio
 async def test_fetch_likes_page_retries_after_404_refresh_on_last_attempt() -> None:
     """fetch_likes_page should retry with new query ID even if 404 happens on last attempt."""
     from unittest.mock import AsyncMock, MagicMock
@@ -1132,6 +1161,36 @@ async def test_fetch_tweet_detail_page_returns_dict() -> None:
     )
 
     assert isinstance(result, dict)
+    assert "data" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_tweet_detail_page_retries_on_429() -> None:
+    """fetch_tweet_detail_page should retry on 429 rate limit."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_tweet_detail_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"tweetResult": {}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [rate_limit_response, success_response]
+
+    result = await fetch_tweet_detail_page(
+        client=mock_client,
+        query_id="DETAIL123",
+        tweet_id="123456789",
+        max_retries=5,
+        base_delay=0.01,
+    )
+
+    assert mock_client.get.call_count == 2
     assert "data" in result
 
 
@@ -1415,6 +1474,36 @@ def test_fetch_user_tweets_and_replies_page_exists() -> None:
     assert callable(fetch_user_tweets_and_replies_page)
 
 
+@pytest.mark.asyncio
+async def test_fetch_user_tweets_and_replies_page_retries_on_429() -> None:
+    """fetch_user_tweets_and_replies_page should retry on 429 rate limit."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_user_tweets_and_replies_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"user": {"result": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [rate_limit_response, success_response]
+
+    result = await fetch_user_tweets_and_replies_page(
+        client=mock_client,
+        query_id="ABC123",
+        user_id="12345",
+        max_retries=5,
+        base_delay=0.01,
+    )
+
+    assert mock_client.get.call_count == 2
+    assert "data" in result
+
+
 def test_build_home_timeline_url_includes_query_id() -> None:
     """build_home_timeline_url should include the HomeLatestTimeline query ID in the path."""
     from tweethoarder.client.timelines import build_home_timeline_url
@@ -1622,3 +1711,32 @@ async def test_fetch_home_timeline_page_calls_refresh_callback_on_404() -> None:
 
     refresh_callback.assert_called_once()
     assert result == {"data": {"home": {"home_timeline_urt": {}}}}
+
+
+@pytest.mark.asyncio
+async def test_fetch_home_timeline_page_retries_on_429() -> None:
+    """fetch_home_timeline_page should retry on 429 rate limit with exponential backoff."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_home_timeline_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"home": {"home_timeline_urt": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [rate_limit_response, success_response]
+
+    result = await fetch_home_timeline_page(
+        client=mock_client,
+        query_id="HOME123",
+        max_retries=5,
+        base_delay=0.01,
+    )
+
+    assert mock_client.get.call_count == 2
+    assert "data" in result
