@@ -181,7 +181,6 @@ def sync_callback(
     reposts: bool = typer.Option(False, "--reposts", help="Sync reposts."),
     replies: bool = typer.Option(False, "--replies", help="Sync replies."),
     feed: bool = typer.Option(False, "--feed", help="Sync feed."),
-    threads: bool = typer.Option(False, "--threads", help="Batch thread expansion."),
     count: int | None = typer.Option(None, "--count", "-c", help="Limit items per collection."),
     with_threads: bool = typer.Option(False, "--with-threads", help="Expand threads during sync."),
     full: bool = typer.Option(False, "--full", help="Force complete resync."),
@@ -192,11 +191,13 @@ def sync_callback(
 
     # Determine which collections to sync
     any_collection_flag = likes or bookmarks or tweets_flag or reposts or replies or feed
-    if not any_collection_flag and not threads:
+    if not any_collection_flag:
         # No flags = sync all collections (except feed)
         likes = bookmarks = tweets_flag = reposts = replies = True
 
-    db_path = get_config_dir() / "tweets.db"
+    from tweethoarder.config import get_data_dir
+
+    db_path = get_data_dir() / "tweethoarder.db"
     with create_sync_progress() as progress:
         asyncio.run(
             sync_all_async(
@@ -206,7 +207,10 @@ def sync_callback(
                 include_tweets=tweets_flag,
                 include_reposts=reposts,
                 include_replies=replies,
+                include_feed=feed,
+                count=count if count is not None else float("inf"),
                 with_threads=with_threads,
+                full=full,
                 progress=progress,
             )
         )
@@ -220,30 +224,35 @@ async def sync_all_async(
     include_tweets: bool = True,
     include_reposts: bool = True,
     include_replies: bool = True,
+    include_feed: bool = False,
+    count: int | float = float("inf"),
     with_threads: bool = False,
+    full: bool = False,
     progress: Progress | None = None,
 ) -> None:
     """Sync all collection types."""
     if include_likes:
         await sync_likes_async(
-            db_path=db_path, count=float("inf"), with_threads=with_threads, progress=progress
+            db_path=db_path, count=count, with_threads=with_threads, full=full, progress=progress
         )
     if include_bookmarks:
         await sync_bookmarks_async(
-            db_path=db_path, count=float("inf"), with_threads=with_threads, progress=progress
+            db_path=db_path, count=count, with_threads=with_threads, full=full, progress=progress
         )
     if include_tweets:
         await sync_tweets_async(
-            db_path=db_path, count=float("inf"), with_threads=with_threads, progress=progress
+            db_path=db_path, count=count, with_threads=with_threads, full=full, progress=progress
         )
     if include_reposts:
         await sync_reposts_async(
-            db_path=db_path, count=float("inf"), with_threads=with_threads, progress=progress
+            db_path=db_path, count=count, with_threads=with_threads, full=full, progress=progress
         )
     if include_replies:
         await sync_replies_async(
-            db_path=db_path, count=float("inf"), with_threads=with_threads, progress=progress
+            db_path=db_path, count=count, with_threads=with_threads, full=full, progress=progress
         )
+    if include_feed:
+        await sync_feed_async(db_path=db_path, count=count, full=full, progress=progress)
 
 
 async def sync_likes_async(

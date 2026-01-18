@@ -43,7 +43,6 @@ def test_sync_accepts_all_collection_flags() -> None:
     assert "--reposts" in clean_output
     assert "--replies" in clean_output
     assert "--feed" in clean_output
-    assert "--threads" in clean_output
 
 
 def test_sync_accepts_count_option() -> None:
@@ -353,3 +352,276 @@ def test_sync_callback_passes_progress_to_sync_all_async() -> None:
         # Progress should be passed (not None)
         assert "progress" in call_kwargs
         assert call_kwargs["progress"] is not None
+
+
+def test_sync_all_async_accepts_full_parameter() -> None:
+    """sync_all_async should accept full parameter."""
+    import inspect
+
+    from tweethoarder.cli.sync import sync_all_async
+
+    sig = inspect.signature(sync_all_async)
+    params = list(sig.parameters.keys())
+
+    assert "full" in params
+
+
+def test_sync_all_async_accepts_count_parameter() -> None:
+    """sync_all_async should accept count parameter."""
+    import inspect
+
+    from tweethoarder.cli.sync import sync_all_async
+
+    sig = inspect.signature(sync_all_async)
+    params = list(sig.parameters.keys())
+
+    assert "count" in params
+
+
+def test_sync_all_async_accepts_include_feed_parameter() -> None:
+    """sync_all_async should accept include_feed parameter."""
+    import inspect
+
+    from tweethoarder.cli.sync import sync_all_async
+
+    sig = inspect.signature(sync_all_async)
+    params = list(sig.parameters.keys())
+
+    assert "include_feed" in params
+
+
+def test_sync_callback_passes_full_to_sync_all_async() -> None:
+    """The sync callback should pass full to sync_all_async."""
+    from unittest.mock import AsyncMock, patch
+
+    with patch("tweethoarder.cli.sync.sync_all_async", new_callable=AsyncMock) as mock:
+        runner.invoke(app, ["sync", "--likes", "--full"])
+
+        mock.assert_called_once()
+        call_kwargs = mock.call_args[1]
+        assert call_kwargs.get("full") is True
+
+
+def test_sync_callback_passes_count_to_sync_all_async() -> None:
+    """The sync callback should pass count to sync_all_async."""
+    from unittest.mock import AsyncMock, patch
+
+    with patch("tweethoarder.cli.sync.sync_all_async", new_callable=AsyncMock) as mock:
+        runner.invoke(app, ["sync", "--likes", "--count", "50"])
+
+        mock.assert_called_once()
+        call_kwargs = mock.call_args[1]
+        assert call_kwargs.get("count") == 50
+
+
+def test_sync_callback_passes_include_feed_to_sync_all_async() -> None:
+    """The sync callback should pass include_feed to sync_all_async when --feed is used."""
+    from unittest.mock import AsyncMock, patch
+
+    with patch("tweethoarder.cli.sync.sync_all_async", new_callable=AsyncMock) as mock:
+        runner.invoke(app, ["sync", "--feed"])
+
+        mock.assert_called_once()
+        call_kwargs = mock.call_args[1]
+        assert call_kwargs.get("include_feed") is True
+
+
+@pytest.mark.asyncio
+async def test_sync_all_async_passes_full_to_sync_likes(tmp_path: Path) -> None:
+    """sync_all_async should pass full parameter to sync_likes_async."""
+    from unittest.mock import AsyncMock, patch
+
+    from tweethoarder.cli.sync import sync_all_async
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    with patch("tweethoarder.cli.sync.sync_likes_async", new_callable=AsyncMock) as mock:
+        mock.return_value = {"synced_count": 0}
+
+        await sync_all_async(
+            db_path=db_path,
+            include_likes=True,
+            include_bookmarks=False,
+            include_tweets=False,
+            include_reposts=False,
+            include_replies=False,
+            full=True,
+        )
+
+        mock.assert_called_once()
+        call_kwargs = mock.call_args[1]
+        assert call_kwargs.get("full") is True
+
+
+@pytest.mark.asyncio
+async def test_sync_all_async_passes_full_to_sync_bookmarks(tmp_path: Path) -> None:
+    """sync_all_async should pass full parameter to sync_bookmarks_async."""
+    from unittest.mock import AsyncMock, patch
+
+    from tweethoarder.cli.sync import sync_all_async
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    with patch("tweethoarder.cli.sync.sync_bookmarks_async", new_callable=AsyncMock) as mock:
+        mock.return_value = {"synced_count": 0}
+
+        await sync_all_async(
+            db_path=db_path,
+            include_likes=False,
+            include_bookmarks=True,
+            include_tweets=False,
+            include_reposts=False,
+            include_replies=False,
+            full=True,
+        )
+
+        mock.assert_called_once()
+        call_kwargs = mock.call_args[1]
+        assert call_kwargs.get("full") is True
+
+
+@pytest.mark.asyncio
+async def test_sync_all_async_passes_full_to_sync_tweets(tmp_path: Path) -> None:
+    """sync_all_async should pass full parameter to sync_tweets_async."""
+    from unittest.mock import AsyncMock, patch
+
+    from tweethoarder.cli.sync import sync_all_async
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    with patch("tweethoarder.cli.sync.sync_tweets_async", new_callable=AsyncMock) as mock:
+        mock.return_value = {"tweets_count": 0, "reposts_count": 0}
+
+        await sync_all_async(
+            db_path=db_path,
+            include_likes=False,
+            include_bookmarks=False,
+            include_tweets=True,
+            include_reposts=False,
+            include_replies=False,
+            full=True,
+        )
+
+        mock.assert_called_once()
+        call_kwargs = mock.call_args[1]
+        assert call_kwargs.get("full") is True
+
+
+@pytest.mark.asyncio
+async def test_sync_all_async_passes_full_to_sync_reposts(tmp_path: Path) -> None:
+    """sync_all_async should pass full parameter to sync_reposts_async."""
+    from unittest.mock import AsyncMock, patch
+
+    from tweethoarder.cli.sync import sync_all_async
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    with patch("tweethoarder.cli.sync.sync_reposts_async", new_callable=AsyncMock) as mock:
+        mock.return_value = {"synced_count": 0}
+
+        await sync_all_async(
+            db_path=db_path,
+            include_likes=False,
+            include_bookmarks=False,
+            include_tweets=False,
+            include_reposts=True,
+            include_replies=False,
+            full=True,
+        )
+
+        mock.assert_called_once()
+        call_kwargs = mock.call_args[1]
+        assert call_kwargs.get("full") is True
+
+
+@pytest.mark.asyncio
+async def test_sync_all_async_passes_full_to_sync_replies(tmp_path: Path) -> None:
+    """sync_all_async should pass full parameter to sync_replies_async."""
+    from unittest.mock import AsyncMock, patch
+
+    from tweethoarder.cli.sync import sync_all_async
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    with patch("tweethoarder.cli.sync.sync_replies_async", new_callable=AsyncMock) as mock:
+        mock.return_value = {"synced_count": 0}
+
+        await sync_all_async(
+            db_path=db_path,
+            include_likes=False,
+            include_bookmarks=False,
+            include_tweets=False,
+            include_reposts=False,
+            include_replies=True,
+            full=True,
+        )
+
+        mock.assert_called_once()
+        call_kwargs = mock.call_args[1]
+        assert call_kwargs.get("full") is True
+
+
+@pytest.mark.asyncio
+async def test_sync_all_async_passes_count_to_sync_likes(tmp_path: Path) -> None:
+    """sync_all_async should pass count parameter to sync_likes_async."""
+    from unittest.mock import AsyncMock, patch
+
+    from tweethoarder.cli.sync import sync_all_async
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    with patch("tweethoarder.cli.sync.sync_likes_async", new_callable=AsyncMock) as mock:
+        mock.return_value = {"synced_count": 0}
+
+        await sync_all_async(
+            db_path=db_path,
+            include_likes=True,
+            include_bookmarks=False,
+            include_tweets=False,
+            include_reposts=False,
+            include_replies=False,
+            count=50,
+        )
+
+        mock.assert_called_once()
+        call_kwargs = mock.call_args[1]
+        assert call_kwargs.get("count") == 50
+
+
+@pytest.mark.asyncio
+async def test_sync_all_async_calls_sync_feed_when_enabled(tmp_path: Path) -> None:
+    """sync_all_async should call sync_feed_async when include_feed=True."""
+    from unittest.mock import AsyncMock, patch
+
+    from tweethoarder.cli.sync import sync_all_async
+    from tweethoarder.storage.database import init_database
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    with patch("tweethoarder.cli.sync.sync_feed_async", new_callable=AsyncMock) as mock:
+        mock.return_value = {"synced_count": 0}
+
+        await sync_all_async(
+            db_path=db_path,
+            include_likes=False,
+            include_bookmarks=False,
+            include_tweets=False,
+            include_reposts=False,
+            include_replies=False,
+            include_feed=True,
+        )
+
+        mock.assert_called_once()
