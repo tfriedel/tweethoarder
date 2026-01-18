@@ -941,6 +941,7 @@ async def test_fetch_likes_page_raises_after_max_retries_exhausted() -> None:
             query_id="ABC123",
             user_id="12345",
             max_retries=3,
+            cooldown_threshold=10,  # High threshold to avoid triggering cooldown
         )
 
     assert mock_client.get.call_count == 3
@@ -1015,6 +1016,35 @@ async def test_fetch_bookmarks_page_calls_refresh_callback_on_404() -> None:
     )
 
     refresh_callback.assert_called_once()
+    assert mock_client.get.call_count == 2
+    assert "data" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_bookmarks_page_retries_on_429() -> None:
+    """fetch_bookmarks_page should retry on 429 rate limit with exponential backoff."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_bookmarks_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"bookmark_timeline_v2": {}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [rate_limit_response, success_response]
+
+    result = await fetch_bookmarks_page(
+        client=mock_client,
+        query_id="BOOK123",
+        max_retries=5,
+        base_delay=0.01,
+    )
+
     assert mock_client.get.call_count == 2
     assert "data" in result
 
@@ -1132,6 +1162,36 @@ async def test_fetch_tweet_detail_page_returns_dict() -> None:
     )
 
     assert isinstance(result, dict)
+    assert "data" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_tweet_detail_page_retries_on_429() -> None:
+    """fetch_tweet_detail_page should retry on 429 rate limit."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_tweet_detail_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"tweetResult": {}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [rate_limit_response, success_response]
+
+    result = await fetch_tweet_detail_page(
+        client=mock_client,
+        query_id="DETAIL123",
+        tweet_id="123456789",
+        max_retries=5,
+        base_delay=0.01,
+    )
+
+    assert mock_client.get.call_count == 2
     assert "data" in result
 
 
@@ -1415,6 +1475,36 @@ def test_fetch_user_tweets_and_replies_page_exists() -> None:
     assert callable(fetch_user_tweets_and_replies_page)
 
 
+@pytest.mark.asyncio
+async def test_fetch_user_tweets_and_replies_page_retries_on_429() -> None:
+    """fetch_user_tweets_and_replies_page should retry on 429 rate limit."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_user_tweets_and_replies_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"user": {"result": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [rate_limit_response, success_response]
+
+    result = await fetch_user_tweets_and_replies_page(
+        client=mock_client,
+        query_id="ABC123",
+        user_id="12345",
+        max_retries=5,
+        base_delay=0.01,
+    )
+
+    assert mock_client.get.call_count == 2
+    assert "data" in result
+
+
 def test_build_home_timeline_url_includes_query_id() -> None:
     """build_home_timeline_url should include the HomeLatestTimeline query ID in the path."""
     from tweethoarder.client.timelines import build_home_timeline_url
@@ -1622,3 +1712,450 @@ async def test_fetch_home_timeline_page_calls_refresh_callback_on_404() -> None:
 
     refresh_callback.assert_called_once()
     assert result == {"data": {"home": {"home_timeline_urt": {}}}}
+
+
+@pytest.mark.asyncio
+async def test_fetch_home_timeline_page_retries_on_429() -> None:
+    """fetch_home_timeline_page should retry on 429 rate limit with exponential backoff."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_home_timeline_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"home": {"home_timeline_urt": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [rate_limit_response, success_response]
+
+    result = await fetch_home_timeline_page(
+        client=mock_client,
+        query_id="HOME123",
+        max_retries=5,
+        base_delay=0.01,
+    )
+
+    assert mock_client.get.call_count == 2
+    assert "data" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_likes_page_makes_at_least_one_attempt_with_zero_max_retries() -> None:
+    """fetch_likes_page should make at least 1 attempt even if max_retries=0."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_likes_page
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"user": {"result": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = success_response
+
+    result = await fetch_likes_page(
+        client=mock_client,
+        query_id="ABC123",
+        user_id="12345",
+        max_retries=0,
+    )
+
+    assert mock_client.get.call_count == 1
+    assert "data" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_tweet_detail_page_makes_at_least_one_attempt_with_zero_max_retries() -> None:
+    """fetch_tweet_detail_page should make at least 1 attempt even if max_retries=0."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_tweet_detail_page
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"tweetResult": {}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = success_response
+
+    result = await fetch_tweet_detail_page(
+        client=mock_client,
+        query_id="DETAIL123",
+        tweet_id="123456789",
+        max_retries=0,
+    )
+
+    assert mock_client.get.call_count == 1
+    assert "data" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_bookmarks_page_makes_at_least_one_attempt_with_zero_max_retries() -> None:
+    """fetch_bookmarks_page should make at least 1 attempt even if max_retries=0."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_bookmarks_page
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"bookmark_timeline_v2": {}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = success_response
+
+    result = await fetch_bookmarks_page(
+        client=mock_client,
+        query_id="BOOK123",
+        max_retries=0,
+    )
+
+    assert mock_client.get.call_count == 1
+    assert "data" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_home_timeline_page_makes_at_least_one_attempt_with_zero_max_retries() -> None:
+    """fetch_home_timeline_page should make at least 1 attempt even if max_retries=0."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_home_timeline_page
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"home": {"home_timeline_urt": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = success_response
+
+    result = await fetch_home_timeline_page(
+        client=mock_client,
+        query_id="HOME123",
+        max_retries=0,
+    )
+
+    assert mock_client.get.call_count == 1
+    assert "data" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_tweets_page_makes_at_least_one_attempt_with_zero_max_retries() -> None:
+    """fetch_user_tweets_page should make at least 1 attempt even if max_retries=0."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_user_tweets_page
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"user": {"result": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = success_response
+
+    result = await fetch_user_tweets_page(
+        client=mock_client,
+        query_id="USER123",
+        user_id="12345",
+        max_retries=0,
+    )
+
+    assert mock_client.get.call_count == 1
+    assert "data" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_tweets_and_replies_page_zero_max_retries_makes_one_attempt() -> None:
+    """fetch_user_tweets_and_replies_page should make at least 1 attempt even if max_retries=0."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_user_tweets_and_replies_page
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"user": {"result": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.return_value = success_response
+
+    result = await fetch_user_tweets_and_replies_page(
+        client=mock_client,
+        query_id="USER123",
+        user_id="12345",
+        max_retries=0,
+    )
+
+    assert mock_client.get.call_count == 1
+    assert "data" in result
+
+
+@pytest.mark.asyncio
+async def test_fetch_likes_page_triggers_cooldown_after_consecutive_429s() -> None:
+    """fetch_likes_page should trigger longer cooldown after consecutive 429 errors."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.client.timelines import fetch_likes_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"user": {"result": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    # 3 consecutive 429s (threshold), then success after cooldown
+    mock_client.get.side_effect = [
+        rate_limit_response,
+        rate_limit_response,
+        rate_limit_response,
+        success_response,
+    ]
+
+    sleep_calls: list[float] = []
+
+    async def mock_sleep(delay: float) -> None:  # noqa: RUF029
+        sleep_calls.append(delay)
+
+    with patch("tweethoarder.client.timelines.asyncio.sleep", side_effect=mock_sleep):
+        result = await fetch_likes_page(
+            client=mock_client,
+            query_id="ABC123",
+            user_id="12345",
+            max_retries=10,
+            base_delay=1.0,
+            cooldown_threshold=3,
+            cooldown_duration=300.0,
+        )
+
+    assert mock_client.get.call_count == 4
+    assert "data" in result
+    # Should have exponential backoff delays plus one cooldown
+    assert 300.0 in sleep_calls  # Cooldown duration should be in the sleep calls
+
+
+@pytest.mark.asyncio
+async def test_fetch_bookmarks_page_triggers_cooldown_after_consecutive_429s() -> None:
+    """fetch_bookmarks_page should trigger longer cooldown after consecutive 429 errors."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.client.timelines import fetch_bookmarks_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"bookmark_timeline_v2": {}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [
+        rate_limit_response,
+        rate_limit_response,
+        rate_limit_response,
+        success_response,
+    ]
+
+    sleep_calls: list[float] = []
+
+    async def mock_sleep(delay: float) -> None:  # noqa: RUF029
+        sleep_calls.append(delay)
+
+    with patch("tweethoarder.client.timelines.asyncio.sleep", side_effect=mock_sleep):
+        result = await fetch_bookmarks_page(
+            client=mock_client,
+            query_id="BOOK123",
+            max_retries=10,
+            base_delay=1.0,
+            cooldown_threshold=3,
+            cooldown_duration=300.0,
+        )
+
+    assert mock_client.get.call_count == 4
+    assert "data" in result
+    assert 300.0 in sleep_calls
+
+
+@pytest.mark.asyncio
+async def test_fetch_home_timeline_page_triggers_cooldown_after_consecutive_429s() -> None:
+    """fetch_home_timeline_page should trigger longer cooldown after consecutive 429 errors."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.client.timelines import fetch_home_timeline_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"home": {"home_timeline_urt": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [
+        rate_limit_response,
+        rate_limit_response,
+        rate_limit_response,
+        success_response,
+    ]
+
+    sleep_calls: list[float] = []
+
+    async def mock_sleep(delay: float) -> None:  # noqa: RUF029
+        sleep_calls.append(delay)
+
+    with patch("tweethoarder.client.timelines.asyncio.sleep", side_effect=mock_sleep):
+        result = await fetch_home_timeline_page(
+            client=mock_client,
+            query_id="HOME123",
+            max_retries=10,
+            base_delay=1.0,
+            cooldown_threshold=3,
+            cooldown_duration=300.0,
+        )
+
+    assert mock_client.get.call_count == 4
+    assert "data" in result
+    assert 300.0 in sleep_calls
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_tweets_page_triggers_cooldown_after_consecutive_429s() -> None:
+    """fetch_user_tweets_page should trigger longer cooldown after consecutive 429 errors."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.client.timelines import fetch_user_tweets_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"user": {"result": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [
+        rate_limit_response,
+        rate_limit_response,
+        rate_limit_response,
+        success_response,
+    ]
+
+    sleep_calls: list[float] = []
+
+    async def mock_sleep(delay: float) -> None:  # noqa: RUF029
+        sleep_calls.append(delay)
+
+    with patch("tweethoarder.client.timelines.asyncio.sleep", side_effect=mock_sleep):
+        result = await fetch_user_tweets_page(
+            client=mock_client,
+            query_id="USER123",
+            user_id="12345",
+            max_retries=10,
+            base_delay=1.0,
+            cooldown_threshold=3,
+            cooldown_duration=300.0,
+        )
+
+    assert mock_client.get.call_count == 4
+    assert "data" in result
+    assert 300.0 in sleep_calls
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_tweets_and_replies_page_cooldown_on_consecutive_429s() -> None:
+    """fetch_user_tweets_and_replies_page should trigger cooldown after consecutive 429 errors."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.client.timelines import fetch_user_tweets_and_replies_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"user": {"result": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [
+        rate_limit_response,
+        rate_limit_response,
+        rate_limit_response,
+        success_response,
+    ]
+
+    sleep_calls: list[float] = []
+
+    async def mock_sleep(delay: float) -> None:  # noqa: RUF029
+        sleep_calls.append(delay)
+
+    with patch("tweethoarder.client.timelines.asyncio.sleep", side_effect=mock_sleep):
+        result = await fetch_user_tweets_and_replies_page(
+            client=mock_client,
+            query_id="USER123",
+            user_id="12345",
+            max_retries=10,
+            base_delay=1.0,
+            cooldown_threshold=3,
+            cooldown_duration=300.0,
+        )
+
+    assert mock_client.get.call_count == 4
+    assert "data" in result
+    assert 300.0 in sleep_calls
+
+
+@pytest.mark.asyncio
+async def test_fetch_tweet_detail_page_triggers_cooldown_after_consecutive_429s() -> None:
+    """fetch_tweet_detail_page should trigger cooldown after consecutive 429 errors."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.client.timelines import fetch_tweet_detail_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"tweetResult": {}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [
+        rate_limit_response,
+        rate_limit_response,
+        rate_limit_response,
+        success_response,
+    ]
+
+    sleep_calls: list[float] = []
+
+    async def mock_sleep(delay: float) -> None:  # noqa: RUF029
+        sleep_calls.append(delay)
+
+    with patch("tweethoarder.client.timelines.asyncio.sleep", side_effect=mock_sleep):
+        result = await fetch_tweet_detail_page(
+            client=mock_client,
+            query_id="DETAIL123",
+            tweet_id="123456789",
+            max_retries=10,
+            base_delay=1.0,
+            cooldown_threshold=3,
+            cooldown_duration=300.0,
+        )
+
+    assert mock_client.get.call_count == 4
+    assert "data" in result
+    assert 300.0 in sleep_calls

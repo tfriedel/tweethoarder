@@ -99,6 +99,36 @@ async def test_fetch_user_tweets_page_calls_client_get() -> None:
     assert "12345" in call_url
 
 
+@pytest.mark.asyncio
+async def test_fetch_user_tweets_page_retries_on_429() -> None:
+    """fetch_user_tweets_page should retry on 429 rate limit with exponential backoff."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tweethoarder.client.timelines import fetch_user_tweets_page
+
+    rate_limit_response = MagicMock()
+    rate_limit_response.status_code = 429
+
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"data": {"user": {"result": {}}}}
+    success_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = [rate_limit_response, success_response]
+
+    result = await fetch_user_tweets_page(
+        client=mock_client,
+        query_id="ABC123",
+        user_id="12345",
+        max_retries=5,
+        base_delay=0.01,
+    )
+
+    assert mock_client.get.call_count == 2
+    assert "data" in result
+
+
 def test_parse_user_tweets_response_exists() -> None:
     """parse_user_tweets_response function should be importable."""
     from tweethoarder.client.timelines import parse_user_tweets_response
