@@ -243,36 +243,34 @@ def test_sync_callback_calls_sync_all_async() -> None:
 
 def test_sync_callback_with_likes_flag_only_syncs_likes() -> None:
     """When --likes flag is given, only include_likes should be True."""
-    from unittest.mock import ANY, AsyncMock, patch
+    from unittest.mock import AsyncMock, patch
 
     with patch("tweethoarder.cli.sync.sync_all_async", new_callable=AsyncMock) as mock_sync_all:
         runner.invoke(app, ["sync", "--likes"])
 
-        mock_sync_all.assert_called_once_with(
-            db_path=ANY,
-            include_likes=True,
-            include_bookmarks=False,
-            include_tweets=False,
-            include_reposts=False,
-            include_replies=False,
-        )
+        mock_sync_all.assert_called_once()
+        call_kwargs = mock_sync_all.call_args[1]
+        assert call_kwargs["include_likes"] is True
+        assert call_kwargs["include_bookmarks"] is False
+        assert call_kwargs["include_tweets"] is False
+        assert call_kwargs["include_reposts"] is False
+        assert call_kwargs["include_replies"] is False
 
 
 def test_sync_callback_with_no_flags_syncs_all_except_feed() -> None:
     """When no flags given, should sync all collections except feed."""
-    from unittest.mock import ANY, AsyncMock, patch
+    from unittest.mock import AsyncMock, patch
 
     with patch("tweethoarder.cli.sync.sync_all_async", new_callable=AsyncMock) as mock_sync_all:
         runner.invoke(app, ["sync"])
 
-        mock_sync_all.assert_called_once_with(
-            db_path=ANY,
-            include_likes=True,
-            include_bookmarks=True,
-            include_tweets=True,
-            include_reposts=True,
-            include_replies=True,
-        )
+        mock_sync_all.assert_called_once()
+        call_kwargs = mock_sync_all.call_args[1]
+        assert call_kwargs["include_likes"] is True
+        assert call_kwargs["include_bookmarks"] is True
+        assert call_kwargs["include_tweets"] is True
+        assert call_kwargs["include_reposts"] is True
+        assert call_kwargs["include_replies"] is True
 
 
 def test_sync_posts_subcommand_removed() -> None:
@@ -293,3 +291,65 @@ def test_sync_threads_subcommand_removed() -> None:
 
     # Command should not exist - expect error
     assert result.exit_code != 0 or "No such command" in result.output
+
+
+def test_sync_all_async_accepts_with_threads_parameter() -> None:
+    """sync_all_async should accept with_threads parameter."""
+    import inspect
+
+    from tweethoarder.cli.sync import sync_all_async
+
+    sig = inspect.signature(sync_all_async)
+    params = list(sig.parameters.keys())
+
+    assert "with_threads" in params
+
+
+def test_sync_callback_passes_with_threads_to_sync_all_async() -> None:
+    """The sync callback should pass with_threads to sync_all_async."""
+    from unittest.mock import AsyncMock, patch
+
+    with patch("tweethoarder.cli.sync.sync_all_async", new_callable=AsyncMock) as mock:
+        runner.invoke(app, ["sync", "--likes", "--with-threads"])
+
+        mock.assert_called_once()
+        call_kwargs = mock.call_args[1]
+        assert call_kwargs.get("with_threads") is True
+
+
+def test_sync_callback_shows_progress_output() -> None:
+    """The sync callback should show progress output."""
+    from unittest.mock import AsyncMock, patch
+
+    with patch("tweethoarder.cli.sync.sync_all_async", new_callable=AsyncMock) as mock:
+        mock.return_value = {"likes": 10}
+        result = runner.invoke(app, ["sync", "--likes"])
+
+        # Should show some output (not be empty)
+        assert result.output.strip() != ""
+
+
+def test_sync_all_async_accepts_progress_parameter() -> None:
+    """sync_all_async should accept progress parameter."""
+    import inspect
+
+    from tweethoarder.cli.sync import sync_all_async
+
+    sig = inspect.signature(sync_all_async)
+    params = list(sig.parameters.keys())
+
+    assert "progress" in params
+
+
+def test_sync_callback_passes_progress_to_sync_all_async() -> None:
+    """The sync callback should pass progress to sync_all_async."""
+    from unittest.mock import AsyncMock, patch
+
+    with patch("tweethoarder.cli.sync.sync_all_async", new_callable=AsyncMock) as mock:
+        runner.invoke(app, ["sync", "--likes"])
+
+        mock.assert_called_once()
+        call_kwargs = mock.call_args[1]
+        # Progress should be passed (not None)
+        assert "progress" in call_kwargs
+        assert call_kwargs["progress"] is not None

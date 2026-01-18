@@ -197,16 +197,20 @@ def sync_callback(
         likes = bookmarks = tweets_flag = reposts = replies = True
 
     db_path = get_config_dir() / "tweets.db"
-    asyncio.run(
-        sync_all_async(
-            db_path=db_path,
-            include_likes=likes,
-            include_bookmarks=bookmarks,
-            include_tweets=tweets_flag,
-            include_reposts=reposts,
-            include_replies=replies,
+    with create_sync_progress() as progress:
+        asyncio.run(
+            sync_all_async(
+                db_path=db_path,
+                include_likes=likes,
+                include_bookmarks=bookmarks,
+                include_tweets=tweets_flag,
+                include_reposts=reposts,
+                include_replies=replies,
+                with_threads=with_threads,
+                progress=progress,
+            )
         )
-    )
+    typer.echo("Sync complete.")
 
 
 async def sync_all_async(
@@ -216,18 +220,30 @@ async def sync_all_async(
     include_tweets: bool = True,
     include_reposts: bool = True,
     include_replies: bool = True,
+    with_threads: bool = False,
+    progress: Progress | None = None,
 ) -> None:
     """Sync all collection types."""
     if include_likes:
-        await sync_likes_async(db_path=db_path, count=float("inf"))
+        await sync_likes_async(
+            db_path=db_path, count=float("inf"), with_threads=with_threads, progress=progress
+        )
     if include_bookmarks:
-        await sync_bookmarks_async(db_path=db_path, count=float("inf"))
+        await sync_bookmarks_async(
+            db_path=db_path, count=float("inf"), with_threads=with_threads, progress=progress
+        )
     if include_tweets:
-        await sync_tweets_async(db_path=db_path, count=float("inf"))
+        await sync_tweets_async(
+            db_path=db_path, count=float("inf"), with_threads=with_threads, progress=progress
+        )
     if include_reposts:
-        await sync_reposts_async(db_path=db_path, count=float("inf"))
+        await sync_reposts_async(
+            db_path=db_path, count=float("inf"), with_threads=with_threads, progress=progress
+        )
     if include_replies:
-        await sync_replies_async(db_path=db_path, count=float("inf"))
+        await sync_replies_async(
+            db_path=db_path, count=float("inf"), with_threads=with_threads, progress=progress
+        )
 
 
 async def sync_likes_async(
