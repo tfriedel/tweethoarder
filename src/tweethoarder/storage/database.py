@@ -390,6 +390,16 @@ def tweet_exists(db_path: Path, tweet_id: str) -> bool:
         return cursor.fetchone() is not None
 
 
+def tweet_in_collection(db_path: Path, tweet_id: str, collection_type: str) -> bool:
+    """Check if a tweet is in a specific collection."""
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT 1 FROM collections WHERE tweet_id = ? AND collection_type = ?",
+            (tweet_id, collection_type),
+        )
+        return cursor.fetchone() is not None
+
+
 def get_tweets_by_collections(db_path: Path, collection_types: list[str]) -> list[dict[str, Any]]:
     """Get all tweets in multiple collections.
 

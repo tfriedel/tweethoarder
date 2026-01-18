@@ -417,3 +417,88 @@ async def test_sync_reposts_async_fetches_threads_for_all_synced_tweets(tmp_path
         # Verify each tweet ID was passed
         call_tweet_ids = [call[1]["tweet_id"] for call in mock_fetch_thread.call_args_list]
         assert set(call_tweet_ids) == {"111", "222", "333"}
+
+
+def test_sync_reposts_async_accepts_full_parameter() -> None:
+    """sync_reposts_async should accept full parameter for forcing complete resync."""
+    import inspect
+
+    from tweethoarder.cli.sync import sync_reposts_async
+
+    sig = inspect.signature(sync_reposts_async)
+    params = list(sig.parameters.keys())
+
+    assert "full" in params
+
+
+@pytest.mark.asyncio
+async def test_sync_reposts_async_stops_on_duplicate(tmp_path: Path) -> None:
+    """sync_reposts_async should stop when encountering an existing repost in the collection."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_reposts_async
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Pre-populate with an existing repost
+    save_tweet(
+        db_path,
+        {
+            "id": "existing",
+            "text": "Already reposted",
+            "author_id": "456",
+            "author_username": "user",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "existing", "repost")
+
+    # API returns: new_repost, then existing_repost
+    mock_response = _make_reposts_response(
+        [
+            _make_repost_entry("new_repost", "New repost"),
+            _make_repost_entry("existing", "Already reposted"),
+        ]
+    )
+
+    with (
+        patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies,
+        patch("tweethoarder.cli.sync.TwitterClient") as mock_client_class,
+        patch("tweethoarder.cli.sync.get_config_dir") as mock_config_dir,
+        patch("tweethoarder.cli.sync.get_query_id_with_fallback") as mock_get_query_id,
+        patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_async_client,
+    ):
+        mock_cookies.return_value = {"twid": "u%3D789"}
+        mock_client_class.return_value.get_base_headers.return_value = {}
+        mock_config_dir.return_value = tmp_path
+        mock_get_query_id.return_value = "ABC123"
+
+        mock_http = AsyncMock()
+        mock_http_response = MagicMock()
+        mock_http_response.json.return_value = mock_response
+        mock_http_response.raise_for_status = MagicMock()
+        mock_http.get.return_value = mock_http_response
+        mock_async_client.return_value.__aenter__.return_value = mock_http
+
+        result = await sync_reposts_async(db_path, count=100)
+
+    # Should only sync the new repost, not the existing one
+    assert result["synced_count"] == 1
+
+
+def test_reposts_command_accepts_full_flag() -> None:
+    """Reposts CLI command should accept --full flag."""
+    import re
+
+    from typer.testing import CliRunner
+
+    from tweethoarder.cli.sync import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["reposts", "--help"])
+
+    # Strip ANSI escape codes for reliable matching
+    clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--full" in clean_output

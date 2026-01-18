@@ -586,6 +586,116 @@ async def test_sync_likes_async_stores_raw_json_when_store_raw_enabled(tmp_path:
     assert row[0] is not None
 
 
+def test_sync_likes_async_accepts_full_parameter() -> None:
+    """sync_likes_async should accept full parameter for forcing complete resync."""
+    import inspect
+
+    from tweethoarder.cli.sync import sync_likes_async
+
+    sig = inspect.signature(sync_likes_async)
+    params = list(sig.parameters.keys())
+
+    assert "full" in params
+
+
+@pytest.mark.asyncio
+async def test_sync_likes_async_stops_on_duplicate(tmp_path: Path) -> None:
+    """sync_likes_async should stop when encountering an existing tweet in the collection."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_likes_async
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Pre-populate with an existing liked tweet
+    save_tweet(
+        db_path,
+        {
+            "id": "existing",
+            "text": "Already liked",
+            "author_id": "456",
+            "author_username": "user",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "existing", "like")
+
+    # API returns: new_tweet, then existing_tweet
+    mock_response = _make_likes_response(
+        [
+            _make_tweet_entry("new_tweet", "New tweet"),
+            _make_tweet_entry("existing", "Already liked"),
+        ]
+    )
+
+    mock_http_response = MagicMock()
+    mock_http_response.json.return_value = mock_response
+    mock_http_response.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t", "twid": "u%3D12345"}
+        with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_http_response
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            result = await sync_likes_async(db_path=db_path, count=100)
+
+    # Should only sync the new tweet, not the existing one
+    assert result["synced_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_likes_async_full_ignores_duplicates(tmp_path: Path) -> None:
+    """sync_likes_async with full=True should continue past existing tweets."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_likes_async
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Pre-populate with an existing liked tweet
+    save_tweet(
+        db_path,
+        {
+            "id": "existing",
+            "text": "Already liked",
+            "author_id": "456",
+            "author_username": "user",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "existing", "like")
+
+    # API returns: new_tweet, then existing_tweet
+    mock_response = _make_likes_response(
+        [
+            _make_tweet_entry("new_tweet", "New tweet"),
+            _make_tweet_entry("existing", "Already liked"),
+        ]
+    )
+
+    mock_http_response = MagicMock()
+    mock_http_response.json.return_value = mock_response
+    mock_http_response.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t", "twid": "u%3D12345"}
+        with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_http_response
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            result = await sync_likes_async(db_path=db_path, count=100, full=True)
+
+    # With full=True, should sync both tweets (existing one gets updated)
+    assert result["synced_count"] == 2
+
+
 @pytest.mark.asyncio
 async def test_sync_likes_async_stores_sort_index(tmp_path: Path) -> None:
     """sync_likes_async should store generated sort_index in collections table."""
@@ -622,3 +732,19 @@ async def test_sync_likes_async_stores_sort_index(tmp_path: Path) -> None:
     assert row is not None
     # First tweet gets the initial sort_index value
     assert row[0] == INITIAL_SORT_INDEX
+
+
+def test_likes_command_accepts_full_flag() -> None:
+    """Likes CLI command should accept --full flag."""
+    import re
+
+    from typer.testing import CliRunner
+
+    from tweethoarder.cli.sync import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["likes", "--help"])
+
+    # Strip ANSI escape codes for reliable matching
+    clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--full" in clean_output

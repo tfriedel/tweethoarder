@@ -352,3 +352,125 @@ async def test_sync_feed_async_saves_sort_index(tmp_path: Path) -> None:
 
     assert rows["111"] == "1000"
     assert rows["222"] == "2000"
+
+
+def test_sync_feed_async_accepts_full_parameter() -> None:
+    """sync_feed_async should accept full parameter for forcing complete resync."""
+    from tweethoarder.cli.sync import sync_feed_async
+
+    sig = inspect.signature(sync_feed_async)
+    params = list(sig.parameters.keys())
+
+    assert "full" in params
+
+
+def _make_feed_entry(tweet_id: str, text: str = "Hello") -> dict:
+    """Create a mock feed entry for testing."""
+    recent_time = datetime.now(UTC).strftime("%a %b %d %H:%M:%S %z %Y")
+    return {
+        "entryId": f"tweet-{tweet_id}",
+        "sortIndex": tweet_id,
+        "content": {
+            "entryType": "TimelineTimelineItem",
+            "itemContent": {
+                "tweet_results": {
+                    "result": {
+                        "rest_id": tweet_id,
+                        "core": {
+                            "user_results": {
+                                "result": {
+                                    "rest_id": "456",
+                                    "core": {
+                                        "screen_name": "testuser",
+                                        "name": "Test User",
+                                    },
+                                }
+                            }
+                        },
+                        "legacy": {
+                            "full_text": text,
+                            "created_at": recent_time,
+                            "conversation_id_str": tweet_id,
+                        },
+                    }
+                }
+            },
+        },
+    }
+
+
+def _make_feed_response(entries: list) -> dict:
+    """Create a mock home timeline API response."""
+    return {
+        "data": {
+            "home": {
+                "home_timeline_urt": {
+                    "instructions": [{"type": "TimelineAddEntries", "entries": entries}]
+                }
+            }
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_sync_feed_async_stops_on_duplicate(tmp_path: Path) -> None:
+    """sync_feed_async should stop when encountering an existing tweet in the collection."""
+    from unittest.mock import AsyncMock, patch
+
+    from tweethoarder.cli.sync import sync_feed_async
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Pre-populate with an existing tweet in the feed collection
+    save_tweet(
+        db_path,
+        {
+            "id": "existing",
+            "text": "Already synced",
+            "author_id": "456",
+            "author_username": "user",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "existing", "feed")
+
+    # API returns: new_tweet, then existing_tweet
+    mock_response = _make_feed_response(
+        [
+            _make_feed_entry("new_tweet", "New tweet"),
+            _make_feed_entry("existing", "Already synced"),
+        ]
+    )
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "test", "ct0": "test"}
+        with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = AsyncMock(
+                json=lambda: mock_response,
+                raise_for_status=lambda: None,
+            )
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            result = await sync_feed_async(db_path, hours=24)
+
+    # Should only sync the new tweet, stop when hitting existing
+    assert result["synced_count"] == 1
+
+
+def test_feed_command_accepts_full_flag() -> None:
+    """Feed CLI command should accept --full flag."""
+    import re
+
+    from typer.testing import CliRunner
+
+    from tweethoarder.cli.sync import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["feed", "--help"])
+
+    # Strip ANSI escape codes for reliable matching
+    clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--full" in clean_output

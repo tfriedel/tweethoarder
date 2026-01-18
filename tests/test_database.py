@@ -893,3 +893,58 @@ def test_get_all_tweets_with_collection_types(tmp_path: Path) -> None:
     assert result[0]["collection_types"] == ["like"]
     assert result[1]["id"] == "123"
     assert sorted(result[1]["collection_types"]) == ["bookmark", "like"]
+
+
+def test_tweet_in_collection_returns_true_for_existing(tmp_path: Path) -> None:
+    """tweet_in_collection should return True for tweets in the specified collection."""
+    from tweethoarder.storage.database import (
+        add_to_collection,
+        init_database,
+        save_tweet,
+        tweet_in_collection,
+    )
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "123",
+            "text": "Test tweet",
+            "author_id": "456",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "123", "like")
+
+    assert tweet_in_collection(db_path, "123", "like") is True
+
+
+def test_tweet_in_collection_returns_false_for_different_collection(tmp_path: Path) -> None:
+    """tweet_in_collection should return False for tweets not in the specified collection."""
+    from tweethoarder.storage.database import (
+        add_to_collection,
+        init_database,
+        save_tweet,
+        tweet_in_collection,
+    )
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    save_tweet(
+        db_path,
+        {
+            "id": "123",
+            "text": "Test tweet",
+            "author_id": "456",
+            "author_username": "testuser",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "123", "like")
+
+    # Tweet is in 'like' but not in 'bookmark'
+    assert tweet_in_collection(db_path, "123", "bookmark") is False
