@@ -237,6 +237,8 @@ async def sync_likes_async(
     total = int(count) if count != float("inf") else None
     sync_task = progress.add_task("Syncing likes", total=total) if progress else None
 
+    hit_duplicate = False
+
     async with httpx.AsyncClient(headers=headers) as http_client:
 
         async def refresh_and_get_likes_id() -> str:
@@ -245,7 +247,7 @@ async def sync_likes_async(
             store.save(new_ids)
             return new_ids["Likes"]
 
-        while synced_count < count:
+        while synced_count < count and not hit_duplicate:
             response = await fetch_likes_page(
                 http_client,
                 query_id,
@@ -268,6 +270,7 @@ async def sync_likes_async(
                     continue
                 # Check for duplicate if not doing full sync
                 if not full and tweet_in_collection(db_path, tweet_data["id"], "like"):
+                    hit_duplicate = True
                     break
                 if store_raw:
                     tweet_data["raw_json"] = json.dumps(raw_tweet)
@@ -395,6 +398,8 @@ async def sync_bookmarks_async(
     total = int(count) if count != float("inf") else None
     sync_task = progress.add_task("Syncing bookmarks", total=total) if progress else None
 
+    hit_duplicate = False
+
     async with httpx.AsyncClient(headers=headers) as http_client:
 
         async def refresh_and_get_bookmarks_id() -> str:
@@ -403,7 +408,7 @@ async def sync_bookmarks_async(
             store.save(new_ids)
             return new_ids["Bookmarks"]
 
-        while synced_count < count:
+        while synced_count < count and not hit_duplicate:
             response = await fetch_bookmarks_page(
                 http_client,
                 query_id,
@@ -424,6 +429,7 @@ async def sync_bookmarks_async(
                 if tweet_data:
                     # Check for duplicate if not doing full sync
                     if not full and tweet_in_collection(db_path, tweet_data["id"], "bookmark"):
+                        hit_duplicate = True
                         break
                     if store_raw:
                         tweet_data["raw_json"] = json.dumps(raw_tweet)
@@ -557,8 +563,10 @@ async def sync_tweets_async(
     total = int(count) if count != float("inf") else None
     sync_task = progress.add_task("Syncing tweets", total=total) if progress else None
 
+    hit_duplicate = False
+
     async with httpx.AsyncClient(headers=headers) as http_client:
-        while synced_count < count:
+        while synced_count < count and not hit_duplicate:
             response = await fetch_user_tweets_page(
                 http_client,
                 query_id,
@@ -582,6 +590,7 @@ async def sync_tweets_async(
                 if tweet_data:
                     # Check for duplicate if not doing full sync
                     if not full and tweet_in_collection(db_path, tweet_data["id"], "tweet"):
+                        hit_duplicate = True
                         break
                     if store_raw:
                         tweet_data["raw_json"] = json.dumps(raw_tweet)
@@ -703,8 +712,10 @@ async def sync_reposts_async(
     total = int(count) if count != float("inf") else None
     sync_task = progress.add_task("Syncing reposts", total=total) if progress else None
 
+    hit_duplicate = False
+
     async with httpx.AsyncClient(headers=headers) as http_client:
-        while synced_count < count:
+        while synced_count < count and not hit_duplicate:
             response = await fetch_user_tweets_page(
                 http_client,
                 query_id,
@@ -727,6 +738,7 @@ async def sync_reposts_async(
                 if tweet_data:
                     # Check for duplicate if not doing full sync
                     if not full and tweet_in_collection(db_path, tweet_data["id"], "repost"):
+                        hit_duplicate = True
                         break
                     if store_raw:
                         tweet_data["raw_json"] = json.dumps(raw_tweet)
@@ -857,8 +869,10 @@ async def sync_replies_async(
     total = int(count) if count != float("inf") else None
     sync_task = progress.add_task("Syncing replies", total=total) if progress else None
 
+    hit_duplicate = False
+
     async with httpx.AsyncClient(headers=headers) as http_client:
-        while synced_count < count:
+        while synced_count < count and not hit_duplicate:
             response = await fetch_user_tweets_page(
                 http_client,
                 query_id,
@@ -882,6 +896,7 @@ async def sync_replies_async(
                 if tweet_data:
                     # Check for duplicate if not doing full sync
                     if not full and tweet_in_collection(db_path, tweet_data["id"], "reply"):
+                        hit_duplicate = True
                         break
                     if store_raw:
                         tweet_data["raw_json"] = json.dumps(raw_tweet)

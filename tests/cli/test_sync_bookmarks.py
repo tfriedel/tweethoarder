@@ -799,6 +799,88 @@ async def test_sync_bookmarks_async_stops_on_duplicate(tmp_path: Path) -> None:
     assert result["synced_count"] == 1
 
 
+@pytest.mark.asyncio
+async def test_sync_bookmarks_async_stops_immediately_when_first_is_duplicate(
+    tmp_path: Path,
+) -> None:
+    """sync_bookmarks_async should stop immediately when first tweet is already synced."""
+    from typing import Any
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_bookmarks_async
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Pre-populate - ALL bookmarks are already synced
+    save_tweet(
+        db_path,
+        {
+            "id": "already_synced_1",
+            "text": "Already bookmarked 1",
+            "author_id": "456",
+            "author_username": "user",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "already_synced_1", "bookmark")
+
+    # API returns only already-synced tweets (with cursor for more pages)
+    page1_response = {
+        "data": {
+            "bookmark_timeline_v2": {
+                "timeline": {
+                    "instructions": [
+                        {
+                            "type": "TimelineAddEntries",
+                            "entries": [
+                                _make_bookmark_entry("already_synced_1", "Already bookmarked 1"),
+                                {
+                                    "entryId": "cursor-bottom-0",
+                                    "content": {
+                                        "cursorType": "Bottom",
+                                        "value": "next_cursor_value",
+                                    },
+                                },
+                            ],
+                        },
+                    ]
+                }
+            }
+        }
+    }
+
+    call_count = [0]
+
+    def mock_get(*args: Any, **kwargs: Any) -> MagicMock:
+        call_count[0] += 1
+        if call_count[0] > 1:
+            raise AssertionError(
+                f"sync_bookmarks_async made {call_count[0]} API calls but should stop "
+                "after first page when hitting duplicate."
+            )
+        response = MagicMock()
+        response.json.return_value = page1_response
+        response.raise_for_status = MagicMock()
+        return response
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t"}
+        with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.side_effect = mock_get
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            result = await sync_bookmarks_async(db_path=db_path, count=100)
+
+            # Should only make ONE API call, not keep fetching pages
+            assert call_count[0] == 1
+
+    # Should sync 0 tweets (all were duplicates)
+    assert result["synced_count"] == 0
+
+
 def test_bookmarks_command_accepts_full_flag() -> None:
     """Bookmarks CLI command should accept --full flag."""
     import re

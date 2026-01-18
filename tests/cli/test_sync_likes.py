@@ -648,6 +648,191 @@ async def test_sync_likes_async_stops_on_duplicate(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_sync_likes_async_stops_pagination_on_duplicate(tmp_path: Path) -> None:
+    """sync_likes_async should not fetch more pages after hitting a duplicate."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_likes_async
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Pre-populate with an existing liked tweet
+    save_tweet(
+        db_path,
+        {
+            "id": "existing",
+            "text": "Already liked",
+            "author_id": "456",
+            "author_username": "user",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "existing", "like")
+
+    # Page 1: new tweet, then existing tweet (should stop here)
+    # Include a cursor to simulate more pages available
+    page1_response = {
+        "data": {
+            "user": {
+                "result": {
+                    "timeline": {
+                        "timeline": {
+                            "instructions": [
+                                {
+                                    "type": "TimelineAddEntries",
+                                    "entries": [
+                                        _make_tweet_entry("new_tweet", "New tweet"),
+                                        _make_tweet_entry("existing", "Already liked"),
+                                        {
+                                            "entryId": "cursor-bottom-0",
+                                            "content": {
+                                                "cursorType": "Bottom",
+                                                "value": "next_cursor_value",
+                                            },
+                                        },
+                                    ],
+                                },
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    # Page 2 would have more tweets (if the bug exists, it would fetch this)
+    page2_response = {
+        "data": {
+            "user": {
+                "result": {
+                    "timeline": {
+                        "timeline": {
+                            "instructions": [
+                                {
+                                    "type": "TimelineAddEntries",
+                                    "entries": [
+                                        _make_tweet_entry("page2_tweet", "Page 2 tweet"),
+                                    ],
+                                },
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    mock_http_response1 = MagicMock()
+    mock_http_response1.json.return_value = page1_response
+    mock_http_response1.raise_for_status = MagicMock()
+
+    mock_http_response2 = MagicMock()
+    mock_http_response2.json.return_value = page2_response
+    mock_http_response2.raise_for_status = MagicMock()
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t", "twid": "u%3D12345"}
+        with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            # Return different responses for page 1 and page 2
+            mock_client.get.side_effect = [mock_http_response1, mock_http_response2]
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            result = await sync_likes_async(db_path=db_path, count=100)
+
+            # Should only make ONE API call (page 1), not continue to page 2
+            assert mock_client.get.call_count == 1
+
+    assert result["synced_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_likes_async_stops_immediately_when_first_is_duplicate(tmp_path: Path) -> None:
+    """sync_likes_async should stop immediately when the first tweet is already synced."""
+    from typing import Any
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tweethoarder.cli.sync import sync_likes_async
+    from tweethoarder.storage.database import add_to_collection, init_database, save_tweet
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    # Pre-populate - ALL likes are already synced
+    save_tweet(
+        db_path,
+        {
+            "id": "already_synced_1",
+            "text": "Already liked 1",
+            "author_id": "456",
+            "author_username": "user",
+            "created_at": "2025-01-01T12:00:00Z",
+        },
+    )
+    add_to_collection(db_path, "already_synced_1", "like")
+
+    # API returns only already-synced tweets (with cursor for more pages)
+    page1_response = {
+        "data": {
+            "user": {
+                "result": {
+                    "timeline": {
+                        "timeline": {
+                            "instructions": [
+                                {
+                                    "type": "TimelineAddEntries",
+                                    "entries": [
+                                        _make_tweet_entry("already_synced_1", "Already liked 1"),
+                                        {
+                                            "entryId": "cursor-bottom-0",
+                                            "content": {
+                                                "cursorType": "Bottom",
+                                                "value": "next_cursor_value",
+                                            },
+                                        },
+                                    ],
+                                },
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    call_count = [0]
+
+    def mock_get(*args: Any, **kwargs: Any) -> MagicMock:
+        call_count[0] += 1
+        if call_count[0] > 1:
+            raise AssertionError(
+                f"sync_likes_async made {call_count[0]} API calls but should stop after "
+                f"first page when hitting duplicate. Missing hit_duplicate flag in while loop."
+            )
+        response = MagicMock()
+        response.json.return_value = page1_response
+        response.raise_for_status = MagicMock()
+        return response
+
+    with patch("tweethoarder.cli.sync.resolve_cookies") as mock_cookies:
+        mock_cookies.return_value = {"auth_token": "t", "ct0": "t", "twid": "u%3D12345"}
+        with patch("tweethoarder.cli.sync.httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get.side_effect = mock_get
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            result = await sync_likes_async(db_path=db_path, count=100)
+
+            # Should only make ONE API call, not keep fetching pages
+            assert call_count[0] == 1
+
+    # Should sync 0 tweets (all were duplicates)
+    assert result["synced_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_sync_likes_async_full_ignores_duplicates(tmp_path: Path) -> None:
     """sync_likes_async with full=True should continue past existing tweets."""
     from unittest.mock import AsyncMock, MagicMock, patch
