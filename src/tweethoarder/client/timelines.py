@@ -280,11 +280,12 @@ async def fetch_home_timeline_page(
     while attempt < max_retries:
         response = await client.get(url)
 
+        # Handle 404 by refreshing query ID (assumes stale query ID, not missing feature flags)
         if response.status_code == 404 and on_query_id_refresh and not refreshed:
             current_query_id = await on_query_id_refresh()
             url = build_home_timeline_url(current_query_id, cursor)
             refreshed = True
-            attempt = 0
+            attempt = 0  # Reset attempts after refresh to give new ID a fair chance
             continue
 
         if response.status_code == 429:
@@ -410,11 +411,12 @@ async def fetch_bookmarks_page(
     while attempt < max_retries:
         response = await client.get(url)
 
+        # Handle 404 by refreshing query ID (assumes stale query ID, not missing feature flags)
         if response.status_code == 404 and on_query_id_refresh and not refreshed:
             current_query_id = await on_query_id_refresh()
             url = build_bookmarks_url(current_query_id, cursor)
             refreshed = True
-            attempt = 0
+            attempt = 0  # Reset attempts after refresh to give new ID a fair chance
             continue
 
         if response.status_code == 429:
@@ -466,6 +468,7 @@ async def fetch_likes_page(
     while attempt < max_retries:
         response = await client.get(url)
 
+        # Handle 404 by refreshing query ID (assumes stale query ID, not missing feature flags)
         if response.status_code == 404 and on_query_id_refresh and not refreshed:
             current_query_id = await on_query_id_refresh()
             url = build_likes_url(current_query_id, user_id, cursor)
