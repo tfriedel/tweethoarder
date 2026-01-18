@@ -216,15 +216,22 @@ CREATE INDEX idx_collections_added ON collections(added_at);
 ### Main Commands
 
 ```bash
-# Sync commands (explicit subcommands)
+# Sync all collections at once (recommended)
 # Note: Resume is automatic - interrupted syncs continue from last checkpoint
+tweethoarder sync                            # Sync all collections (likes, bookmarks, tweets, reposts, replies)
+tweethoarder sync --likes                    # Sync only likes
+tweethoarder sync --likes --bookmarks        # Sync likes and bookmarks
+tweethoarder sync --tweets --reposts         # Sync tweets and reposts
+tweethoarder sync --feed                     # Sync feed (excluded from default sync)
+tweethoarder sync --count N                  # Limit items per collection
+tweethoarder sync --full                     # Force complete resync (ignore existing)
+
+# Individual sync subcommands (for backwards compatibility)
 tweethoarder sync likes [--count N] [--all] [--with-threads] [--thread-mode MODE] [--store-raw/--no-store-raw]
 tweethoarder sync bookmarks [--count N] [--all] [--with-threads] [--thread-mode MODE] [--store-raw/--no-store-raw]
 tweethoarder sync tweets [--count N] [--all] [--with-threads] [--thread-mode MODE] [--store-raw/--no-store-raw]
 tweethoarder sync reposts [--count N] [--all] [--with-threads] [--thread-mode MODE] [--store-raw/--no-store-raw]
 tweethoarder sync replies [--count N] [--all] [--with-threads] [--thread-mode MODE] [--store-raw/--no-store-raw]
-tweethoarder sync posts [--count N] [--all] [--with-threads] [--thread-mode MODE] [--store-raw/--no-store-raw]
-tweethoarder sync threads [--force]          # Batch thread fetching for tweets needing expansion
 tweethoarder sync feed [--hours N] [--all]   # Sync Following/home timeline (default: last 24h)
 
 # Thread fetching (on-demand)
@@ -247,25 +254,30 @@ tweethoarder config set KEY VALUE            # Set config value
 
 | Command | Description |
 |---------|-------------|
-| `sync likes` | Sync liked tweets |
-| `sync bookmarks` | Sync bookmarks (all folders) |
-| `sync tweets` | Sync user's original tweets (not replies) |
-| `sync reposts` | Sync user's retweets |
-| `sync replies` | Sync user's replies to other users |
-| `sync posts` | Combined sync of tweets + reposts in single API call |
-| `sync threads` | Batch thread fetching for tweets marked for expansion |
-| `sync feed` | Sync home timeline (Following feed) |
+| `sync` | Sync all collections (likes, bookmarks, tweets, reposts, replies) |
+| `sync --likes` | Sync only likes |
+| `sync --bookmarks` | Sync only bookmarks |
+| `sync --tweets` | Sync only tweets |
+| `sync --reposts` | Sync only reposts |
+| `sync --replies` | Sync only replies |
+| `sync --feed` | Sync feed (excluded from default sync) |
+| `sync likes` | Sync liked tweets (subcommand) |
+| `sync bookmarks` | Sync bookmarks (subcommand) |
+| `sync tweets` | Sync user's original tweets (subcommand) |
+| `sync reposts` | Sync user's retweets (subcommand) |
+| `sync replies` | Sync user's replies (subcommand) |
+| `sync feed` | Sync home timeline (subcommand) |
 
 ### Common Sync Flags
 
 | Flag | Description |
 |------|-------------|
-| `--count N` | Limit to N tweets (default: 100) |
-| `--all` | Sync all available tweets (no limit) |
+| `--count N` | Limit to N items per collection (default: unlimited incremental) |
+| `--all` | Sync all available items (no limit) - for subcommands |
+| `--full` | Force complete resync, ignoring existing tweets |
 | `--with-threads` | Expand threads for synced tweets |
 | `--thread-mode` | `thread` (author only) or `conversation` (all replies) |
-| `--store-raw/--no-store-raw` | Store raw JSON response (default: no) |
-| `--force` | For `sync threads`: re-fetch already expanded threads |
+| `--store-raw/--no-store-raw` | Store raw JSON response (default: yes) |
 | `--hours N` | For `sync feed`: fetch posts from last N hours (default: 24) |
 
 ### CLI Examples
@@ -294,11 +306,14 @@ $ tweethoarder sync feed --hours 48
 # Sync replies separately
 $ tweethoarder sync replies --all
 
+# Sync all collections at once (recommended)
+$ tweethoarder sync
+
+# Sync only likes and bookmarks
+$ tweethoarder sync --likes --bookmarks
+
 # Fetch thread context for a specific tweet
 $ tweethoarder thread 1234567890
-
-# Batch expand threads for tweets needing expansion
-$ tweethoarder sync threads
 
 # Export to JSON
 $ tweethoarder export json --collection likes --output ~/likes.json

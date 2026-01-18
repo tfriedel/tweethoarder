@@ -244,17 +244,3 @@ async def test_sync_posts_async_stops_on_duplicate(tmp_path: Path) -> None:
     # Should only sync the new tweet, stop when hitting existing
     assert result["tweets_count"] == 1
     assert result["reposts_count"] == 0
-
-
-def test_posts_command_accepts_full_flag() -> None:
-    """Posts CLI command should accept --full flag."""
-    import re
-
-    from tweethoarder.cli.sync import app
-
-    runner = CliRunner()
-    result = runner.invoke(app, ["posts", "--help"])
-
-    # Strip ANSI escape codes for reliable matching
-    clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
-    assert "--full" in clean_output
