@@ -172,6 +172,89 @@ app = typer.Typer(
 )
 
 
+@app.callback(invoke_without_command=True)
+def sync_callback(
+    ctx: typer.Context,
+    likes: bool = typer.Option(False, "--likes", help="Sync likes."),
+    bookmarks: bool = typer.Option(False, "--bookmarks", help="Sync bookmarks."),
+    tweets_flag: bool = typer.Option(False, "--tweets", help="Sync tweets."),
+    reposts: bool = typer.Option(False, "--reposts", help="Sync reposts."),
+    replies: bool = typer.Option(False, "--replies", help="Sync replies."),
+    feed: bool = typer.Option(False, "--feed", help="Sync feed."),
+    count: int | None = typer.Option(None, "--count", "-c", help="Limit items per collection."),
+    with_threads: bool = typer.Option(False, "--with-threads", help="Expand threads during sync."),
+    full: bool = typer.Option(False, "--full", help="Force complete resync."),
+) -> None:
+    """Sync Twitter/X data. Run without subcommand to sync all collections."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    # Determine which collections to sync
+    any_collection_flag = likes or bookmarks or tweets_flag or reposts or replies or feed
+    if not any_collection_flag:
+        # No flags = sync all collections (except feed)
+        likes = bookmarks = tweets_flag = reposts = replies = True
+
+    from tweethoarder.config import get_data_dir
+
+    db_path = get_data_dir() / "tweethoarder.db"
+    with create_sync_progress() as progress:
+        asyncio.run(
+            sync_all_async(
+                db_path=db_path,
+                include_likes=likes,
+                include_bookmarks=bookmarks,
+                include_tweets=tweets_flag,
+                include_reposts=reposts,
+                include_replies=replies,
+                include_feed=feed,
+                count=count if count is not None else float("inf"),
+                with_threads=with_threads,
+                full=full,
+                progress=progress,
+            )
+        )
+    typer.echo("Sync complete.")
+
+
+async def sync_all_async(
+    db_path: Path,
+    include_likes: bool = True,
+    include_bookmarks: bool = True,
+    include_tweets: bool = True,
+    include_reposts: bool = True,
+    include_replies: bool = True,
+    include_feed: bool = False,
+    count: int | float = float("inf"),
+    with_threads: bool = False,
+    full: bool = False,
+    progress: Progress | None = None,
+) -> None:
+    """Sync all collection types."""
+    if include_likes:
+        await sync_likes_async(
+            db_path=db_path, count=count, with_threads=with_threads, full=full, progress=progress
+        )
+    if include_bookmarks:
+        await sync_bookmarks_async(
+            db_path=db_path, count=count, with_threads=with_threads, full=full, progress=progress
+        )
+    if include_tweets:
+        await sync_tweets_async(
+            db_path=db_path, count=count, with_threads=with_threads, full=full, progress=progress
+        )
+    if include_reposts:
+        await sync_reposts_async(
+            db_path=db_path, count=count, with_threads=with_threads, full=full, progress=progress
+        )
+    if include_replies:
+        await sync_replies_async(
+            db_path=db_path, count=count, with_threads=with_threads, full=full, progress=progress
+        )
+    if include_feed:
+        await sync_feed_async(db_path=db_path, count=count, full=full, progress=progress)
+
+
 async def sync_likes_async(
     db_path: Path,
     count: int | float,
@@ -1123,118 +1206,6 @@ async def sync_posts_async(
     checkpoint.clear("posts")
 
     return {"tweets_count": tweets_count, "reposts_count": reposts_count}
-
-
-@app.command()
-def posts(
-    count: int = typer.Option(100, "--count", "-c", help="Number of posts to sync."),
-    all_posts: bool = typer.Option(False, "--all", help="Sync all posts (ignore count)."),
-    with_threads: bool = typer.Option(False, "--with-threads", help="Fetch thread context."),
-    thread_mode: str = typer.Option(
-        "thread", "--thread-mode", help="Thread mode: thread (author only) or conversation."
-    ),
-    store_raw: bool = typer.Option(
-        True, "--store-raw/--no-store-raw", help="Store raw API response JSON."
-    ),
-    full: bool = typer.Option(
-        False, "--full", help="Force complete resync, ignoring existing tweets."
-    ),
-) -> None:
-    """Sync all your posts (tweets and reposts) to local storage.
-
-    Uses a single API pass to fetch both tweets and reposts efficiently.
-    Note: Replies are not available via the Twitter API's UserTweets endpoint.
-    """
-    import asyncio
-
-    from tweethoarder.config import get_data_dir
-
-    db_path = get_data_dir() / "tweethoarder.db"
-    effective_count = float("inf") if all_posts else count
-
-    with create_sync_progress() as progress:
-        result = asyncio.run(
-            sync_posts_async(
-                db_path,
-                effective_count,
-                with_threads=with_threads,
-                thread_mode=thread_mode,
-                store_raw=store_raw,
-                progress=progress,
-                full=full,
-            )
-        )
-
-    typer.echo(f"Synced {result['tweets_count']} tweets, {result['reposts_count']} reposts.")
-
-
-@app.command()
-def threads(
-    thread_mode: str = typer.Option(
-        "thread", "--thread-mode", help="Thread mode: thread (author only) or conversation."
-    ),
-    force: bool = typer.Option(
-        False, "--force", "-f", help="Fetch threads even if we might already have them."
-    ),
-) -> None:
-    """Fetch thread context for existing tweets in the database.
-
-    Finds self-reply tweets (threads) that may be missing context and fetches
-    the full thread. By default, skips conversations where we already have
-    multiple tweets (likely already fetched). Use --force to fetch all.
-    """
-    import asyncio
-    import sqlite3
-
-    from tweethoarder.config import get_data_dir
-
-    db_path = get_data_dir() / "tweethoarder.db"
-
-    # Find self-reply tweets (threads) that need fetching
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-
-    if force:
-        # Fetch all self-reply tweets, deduplicated by conversation_id
-        cursor = conn.execute("""
-            SELECT DISTINCT conversation_id, id as tweet_id
-            FROM tweets
-            WHERE in_reply_to_user_id IS NOT NULL
-              AND in_reply_to_user_id = author_id
-              AND conversation_id IS NOT NULL
-            GROUP BY conversation_id
-        """)
-    else:
-        # Fetch threads where a self-reply's parent tweet is missing from the DB
-        cursor = conn.execute("""
-            SELECT DISTINCT t.conversation_id, t.id as tweet_id
-            FROM tweets t
-            WHERE t.in_reply_to_user_id IS NOT NULL
-              AND t.in_reply_to_user_id = t.author_id
-              AND t.in_reply_to_tweet_id IS NOT NULL
-              AND t.in_reply_to_tweet_id NOT IN (SELECT id FROM tweets)
-        """)
-
-    rows = cursor.fetchall()
-    conn.close()
-
-    if not rows:
-        typer.echo("No threads need fetching.")
-        return
-
-    tweet_ids = [row["tweet_id"] for row in rows]
-    typer.echo(f"Found {len(tweet_ids)} threads to fetch.")
-
-    with create_sync_progress() as progress:
-        result = asyncio.run(
-            fetch_threads_with_adaptive_delay(db_path, tweet_ids, thread_mode, progress)
-        )
-
-    typer.echo(
-        f"Fetched {result['fetched_count']} threads"
-        + (f", {result['failed_count']} failed" if result["failed_count"] else "")
-        + "."
-    )
 
 
 async def sync_feed_async(

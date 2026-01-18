@@ -156,8 +156,8 @@ def test_replies_command_exists() -> None:
     assert result.exit_code == 0
 
 
-def test_posts_command_exists() -> None:
-    """Posts command should be available in sync CLI."""
+def test_posts_command_removed() -> None:
+    """Posts command was removed - use sync --tweets --reposts instead."""
     from typer.testing import CliRunner
 
     from tweethoarder.cli.sync import app
@@ -165,8 +165,8 @@ def test_posts_command_exists() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["posts", "--help"])
 
-    assert result.exit_code == 0
-    assert "tweets" in result.output.lower() or "replies" in result.output.lower()
+    # Command should not exist
+    assert result.exit_code != 0 or "No such command" in result.output
 
 
 def _make_parent_tweet_response(tweet_id: str, text: str) -> dict:
