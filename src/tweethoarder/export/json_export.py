@@ -20,6 +20,21 @@ def _format_tweet(
             "display_name": tweet["author_display_name"],
         },
     }
+    collection_type = tweet.get("collection_type")
+    collection_added_at = tweet.get("collection_added_at")
+    if collection_type:
+        formatted["collection_type"] = collection_type
+    if collection_added_at:
+        formatted["collection_added_at"] = collection_added_at
+    if tweet.get("collection_synced_at"):
+        formatted["collection_synced_at"] = tweet["collection_synced_at"]
+    if tweet.get("sort_index"):
+        formatted["sort_index"] = tweet["sort_index"]
+    if collection_type == "bookmark" and collection_added_at:
+        formatted["bookmark_observed_at"] = collection_added_at
+        formatted["bookmark_timestamp_source"] = "local_first_seen_at"
+    if tweet.get("bookmark_folder_name"):
+        formatted["bookmark_folder_name"] = tweet["bookmark_folder_name"]
     if "reply_count" in tweet:
         formatted["metrics"] = {
             "reply_count": tweet["reply_count"],

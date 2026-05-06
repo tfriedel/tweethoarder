@@ -208,6 +208,37 @@ def test_add_to_collection_stores_sort_index(tmp_path: Path) -> None:
     assert row[0] == "2007662285526401024"
 
 
+def test_get_tweets_by_collection_includes_collection_metadata(tmp_path: Path) -> None:
+    """Collection export queries should expose local collection timestamps."""
+    from tweethoarder.storage.database import (
+        add_to_collection,
+        get_tweets_by_collection,
+        init_database,
+        save_tweet,
+    )
+
+    db_path = tmp_path / "test.db"
+    init_database(db_path)
+
+    tweet_data = {
+        "id": "123456789",
+        "text": "Hello!",
+        "author_id": "987654321",
+        "author_username": "testuser",
+        "created_at": "2025-01-01T12:00:00Z",
+    }
+    save_tweet(db_path, tweet_data)
+    add_to_collection(db_path, "123456789", "bookmark", sort_index="9000000000000000000")
+
+    tweets = get_tweets_by_collection(db_path, "bookmark")
+
+    assert len(tweets) == 1
+    assert tweets[0]["collection_type"] == "bookmark"
+    assert tweets[0]["sort_index"] == "9000000000000000000"
+    assert tweets[0]["collection_added_at"]
+    assert tweets[0]["collection_synced_at"]
+
+
 def test_save_tweet_preserves_first_seen_at_on_update(tmp_path: Path) -> None:
     """save_tweet should preserve first_seen_at when updating existing tweet."""
     import time

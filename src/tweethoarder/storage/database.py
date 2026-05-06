@@ -279,7 +279,15 @@ def get_tweets_by_collection(db_path: Path, collection_type: str) -> list[dict[s
         conn.row_factory = sqlite3.Row
         cursor = conn.execute(
             """
-            SELECT t.* FROM tweets t
+            SELECT
+                t.*,
+                c.collection_type,
+                c.bookmark_folder_id,
+                c.bookmark_folder_name,
+                c.sort_index,
+                c.added_at AS collection_added_at,
+                c.synced_at AS collection_synced_at
+            FROM tweets t
             JOIN collections c ON t.id = c.tweet_id
             WHERE c.collection_type = ?
             ORDER BY c.sort_index IS NULL ASC, c.sort_index DESC, c.added_at DESC
@@ -323,7 +331,15 @@ def get_tweets_by_bookmark_folder(db_path: Path, folder_name: str) -> list[dict[
         conn.row_factory = sqlite3.Row
         cursor = conn.execute(
             """
-            SELECT t.* FROM tweets t
+            SELECT
+                t.*,
+                c.collection_type,
+                c.bookmark_folder_id,
+                c.bookmark_folder_name,
+                c.sort_index,
+                c.added_at AS collection_added_at,
+                c.synced_at AS collection_synced_at
+            FROM tweets t
             JOIN collections c ON t.id = c.tweet_id
             WHERE c.collection_type = 'bookmark' AND c.bookmark_folder_name = ?
             ORDER BY c.added_at DESC

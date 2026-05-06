@@ -83,3 +83,27 @@ def test_export_includes_quoted_tweet(make_tweet: Any) -> None:
     result = export_tweets_to_json(tweets=tweets, quoted_tweets={quoted_tweet["id"]: quoted_tweet})
     assert result["tweets"][0]["quoted_tweet"]["id"] == "999"
     assert result["tweets"][0]["quoted_tweet"]["text"] == "Original tweet"
+
+
+def test_export_includes_bookmark_observed_at_for_bookmark_collection(make_tweet: Any) -> None:
+    """Bookmark exports include local first-seen timestamp for trend analysis."""
+    tweets = [
+        make_tweet(
+            collection_type="bookmark",
+            collection_added_at="2026-05-06T03:49:52+00:00",
+            collection_synced_at="2026-05-06T03:50:00+00:00",
+            sort_index="9000000000000000000",
+            bookmark_folder_name="AI tools",
+        )
+    ]
+
+    result = export_tweets_to_json(tweets=tweets, collection="bookmarks")
+    tweet = result["tweets"][0]
+
+    assert tweet["collection_type"] == "bookmark"
+    assert tweet["collection_added_at"] == "2026-05-06T03:49:52+00:00"
+    assert tweet["collection_synced_at"] == "2026-05-06T03:50:00+00:00"
+    assert tweet["sort_index"] == "9000000000000000000"
+    assert tweet["bookmark_observed_at"] == "2026-05-06T03:49:52+00:00"
+    assert tweet["bookmark_timestamp_source"] == "local_first_seen_at"
+    assert tweet["bookmark_folder_name"] == "AI tools"
