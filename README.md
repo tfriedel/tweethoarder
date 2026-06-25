@@ -20,7 +20,7 @@ TweetHoarder uses cookie-based authentication to access Twitter's internal Graph
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/tweethoarder.git
+git clone https://github.com/tfriedel/tweethoarder.git
 cd tweethoarder
 
 # Install with uv
