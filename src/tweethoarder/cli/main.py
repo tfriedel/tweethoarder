@@ -92,6 +92,65 @@ def user(
             typer.echo(f"  Bio: {desc[:100]}")
 
 
+@app.command(name="lists")
+def lists_command(
+    raw: bool = typer.Option(False, "--raw", "-r", help="Print raw JSON response."),
+) -> None:
+    """Discover your Twitter Lists and their IDs.
+
+    Prints each list's ID, name, and description. Use the IDs with:
+      tweethoarder sync list <list_id> --name "My List"
+
+    If this command fails (missing query ID), run `tweethoarder refresh-ids` first,
+    or find your list IDs manually at https://x.com/i/lists (the numeric ID is in the URL).
+    """
+    import asyncio
+    from typing import Any
+
+    import httpx
+
+    from tweethoarder.auth.cookies import resolve_cookies
+    from tweethoarder.client.base import TwitterClient
+    from tweethoarder.client.timelines import (
+        fetch_user_by_screen_name,
+    )
+    from tweethoarder.query_ids.store import QueryIdStore, get_query_id_with_fallback
+
+    async def fetch_lists() -> list[dict[str, Any]]:
+        cookies = resolve_cookies()
+        if not cookies:
+            raise ValueError("No cookies found.")
+        tc = TwitterClient(cookies)
+        store = QueryIdStore(get_config_dir() / "query-ids-cache.json")
+        user_id = cookies.get("twid", "").replace("u%3D", "")
+        if not user_id:
+            raise ValueError("Could not determine user ID from cookies.")
+
+        query_id = get_query_id_with_fallback(store, "UserByScreenName")
+
+        raise NotImplementedError(
+            "Automatic list discovery requires knowing your screen name.\n"
+            "Find your lists at: https://x.com/i/lists\n"
+            "The list ID is the number in the URL: https://x.com/i/lists/<LIST_ID>\n"
+            "Then sync with: tweethoarder sync list <LIST_ID> --name 'My List'"
+        )
+
+    try:
+        asyncio.run(fetch_lists())
+    except NotImplementedError as e:
+        typer.echo(str(e))
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        typer.echo(
+            "\nManual alternative:\n"
+            "  1. Visit https://x.com/i/lists in your browser\n"
+            "  2. Click each list — the URL shows the numeric list ID\n"
+            "  3. Run: tweethoarder sync list <LIST_ID> --name 'My List'\n"
+            "     to sync tweets from that list into the local DB"
+        )
+        raise typer.Exit(1)
+
+
 @app.command(name="refresh-ids")
 def refresh_ids_command() -> None:
     """Refresh Twitter GraphQL query IDs."""

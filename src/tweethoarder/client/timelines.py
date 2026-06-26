@@ -391,6 +391,111 @@ def build_user_tweets_and_replies_url(
     return f"{TWITTER_API_BASE}/{query_id}/UserTweetsAndReplies?{params}"
 
 
+def build_list_timeline_url(query_id: str, list_id: str, cursor: str | None = None) -> str:
+    """Build URL for fetching a Twitter List's latest tweets."""
+    variables: dict[str, str | int | bool] = {
+        "listId": list_id,
+        "count": 20,
+        "includePromotedContent": False,
+    }
+    if cursor:
+        variables["cursor"] = cursor
+    features = build_likes_features()
+    params = urlencode({"variables": json.dumps(variables), "features": json.dumps(features)})
+    return f"{TWITTER_API_BASE}/{query_id}/ListLatestTweetsTimeline?{params}"
+
+
+def parse_list_timeline_response(
+    response: dict[str, Any],
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Parse list timeline API response and extract tweets with sort index and next cursor.
+
+    Response structure: data.list.tweets_timeline.timeline.instructions[].entries[]
+    """
+    entries: list[dict[str, Any]] = []
+    cursor: str | None = None
+
+    timeline = (
+        response.get("data", {})
+        .get("list", {})
+        .get("tweets_timeline", {})
+        .get("timeline", {})
+    )
+
+    for instruction in timeline.get("instructions", []):
+        if instruction.get("type") != "TimelineAddEntries":
+            continue
+        for entry in instruction.get("entries", []):
+            entry_id = entry.get("entryId", "")
+            content = entry.get("content", {})
+
+            if entry_id.startswith("tweet-"):
+                item_content = content.get("itemContent", {})
+                tweet_result = item_content.get("tweet_results", {}).get("result")
+                if tweet_result:
+                    entries.append(
+                        {
+                            "tweet": tweet_result,
+                            "sort_index": entry.get("sortIndex"),
+                        }
+                    )
+            elif entry_id.startswith("cursor-bottom-"):
+                cursor = content.get("value")
+
+    return entries, cursor
+
+
+async def fetch_list_timeline_page(
+    client: Any,
+    query_id: str,
+    list_id: str,
+    cursor: str | None = None,
+    max_retries: int = 5,
+    base_delay: float = 1.0,
+    on_query_id_refresh: Callable[[], Awaitable[str]] | None = None,
+    cooldown_threshold: int = 3,
+    cooldown_duration: float = 300.0,
+) -> dict[str, Any]:
+    """Fetch a page of tweets from a Twitter List with retry on rate limit."""
+    max_retries = max(1, max_retries)
+    current_query_id = query_id
+    url = build_list_timeline_url(current_query_id, list_id, cursor)
+    refreshed = False
+    attempt = 0
+    consecutive_429s = 0
+
+    while attempt < max_retries:
+        response = await client.get(url)
+
+        if response.status_code == 404 and on_query_id_refresh and not refreshed:
+            current_query_id = await on_query_id_refresh()
+            url = build_list_timeline_url(current_query_id, list_id, cursor)
+            refreshed = True
+            attempt = 0
+            consecutive_429s = 0
+            continue
+
+        if response.status_code == 429:
+            consecutive_429s += 1
+            if consecutive_429s >= cooldown_threshold:
+                await asyncio.sleep(cooldown_duration)
+                consecutive_429s = 0
+                continue
+            if attempt < max_retries - 1:
+                delay = base_delay * (2**attempt)
+                await asyncio.sleep(delay)
+                attempt += 1
+                continue
+            response.raise_for_status()
+
+        consecutive_429s = 0
+        response.raise_for_status()
+        result: dict[str, Any] = response.json()
+        return result
+
+    raise RuntimeError("Unreachable: retry loop should always return or raise")
+
+
 def build_home_timeline_url(query_id: str, cursor: str | None = None) -> str:
     """Build URL for fetching home timeline (Following feed) from Twitter GraphQL API."""
     variables: dict[str, str | int | bool | list[str]] = {

@@ -1281,3 +1281,130 @@ def feed(
 
     result = asyncio.run(sync_feed_async(db_path=db_path, hours=hours, full=full))
     typer.echo(f"Synced {result['synced_count']} feed tweets.")
+
+
+async def sync_list_async(
+    db_path: Path,
+    list_id: str,
+    list_name: str = "",
+    hours: int = 24,
+    count: int | float = float("inf"),
+    full: bool = False,
+) -> dict[str, Any]:
+    """Sync tweets from a Twitter List to the local database.
+
+    Tweets are stored under collection_type='list:{list_id}' so that
+    each list has its own namespace and a tweet can appear in multiple lists
+    without primary-key conflicts.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from tweethoarder.client.timelines import (
+        fetch_list_timeline_page,
+        parse_list_timeline_response,
+    )
+
+    init_database(db_path)
+
+    cookies = resolve_cookies()
+    if not cookies:
+        raise ValueError("No cookies found. Please log in to Twitter in your browser.")
+
+    client = TwitterClient(cookies=cookies)
+    cache_path = get_config_dir() / "query-ids-cache.json"
+    store = QueryIdStore(cache_path)
+    query_id = get_query_id_with_fallback(store, "ListLatestTweetsTimeline")
+    if not query_id:
+        raise ValueError(
+            "ListLatestTweetsTimeline query ID not found. Run `tweethoarder refresh-ids` first."
+        )
+
+    collection_type = f"list:{list_id}"
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+    synced_count = 0
+    headers = client.get_base_headers()
+
+    async with httpx.AsyncClient(headers=headers) as http_client:
+
+        async def refresh_and_get_list_id() -> str:
+            new_ids: dict[str, str] = await refresh_query_ids(
+                http_client, targets={"ListLatestTweetsTimeline"}
+            )
+            store.save(new_ids)
+            return new_ids["ListLatestTweetsTimeline"]
+
+        cursor: str | None = None
+        while synced_count < count:
+            response = await fetch_list_timeline_page(
+                http_client,
+                query_id,
+                list_id,
+                cursor,
+                on_query_id_refresh=refresh_and_get_list_id,
+            )
+            entries, cursor = parse_list_timeline_response(response)
+
+            if not entries:
+                break
+
+            hit_cutoff = False
+            for entry in entries:
+                if synced_count >= count:
+                    break
+                raw_tweet = entry["tweet"]
+                sort_index = entry.get("sort_index")
+                tweet_data = extract_tweet_data(raw_tweet)
+                if tweet_data is None:
+                    continue
+                tweet_time_str = tweet_data.get("created_at", "")
+                if tweet_time_str:
+                    from datetime import datetime as dt
+                    tweet_time = dt.fromisoformat(tweet_time_str)
+                    if tweet_time.tzinfo is None:
+                        tweet_time = tweet_time.replace(tzinfo=UTC)
+                    if tweet_time < cutoff:
+                        hit_cutoff = True
+                        break
+                if not full and tweet_in_collection(db_path, tweet_data["id"], collection_type):
+                    hit_cutoff = True
+                    break
+                save_tweet(db_path, tweet_data)
+                quoted = extract_quoted_tweet(raw_tweet)
+                if quoted:
+                    save_tweet(db_path, quoted)
+                add_to_collection(db_path, tweet_data["id"], collection_type, sort_index=sort_index)
+                synced_count += 1
+
+            if hit_cutoff or not cursor:
+                break
+
+    return {"synced_count": synced_count, "list_id": list_id, "list_name": list_name}
+
+
+@app.command(name="list")
+def list_cmd(
+    list_id: str = typer.Argument(..., help="Twitter List ID (numeric, from the list URL)."),
+    name: str = typer.Option("", "--name", "-n", help="Optional display name for this list."),
+    hours: int = typer.Option(
+        24, "--hours", "-h", help="Sync tweets from the last N hours."
+    ),
+    full: bool = typer.Option(
+        False, "--full", help="Force complete resync, ignoring existing tweets."
+    ),
+) -> None:
+    """Sync tweets from a Twitter List.
+
+    The list ID is the numeric ID from the list URL:
+      https://x.com/i/lists/1234567890  →  list_id=1234567890
+
+    Tweets are stored under collection_type='list:<list_id>' so the same tweet
+    can appear in multiple lists and in the home feed without conflicts.
+    """
+    from tweethoarder.config import get_data_dir
+
+    db_path = get_data_dir() / "tweethoarder.db"
+    result = asyncio.run(
+        sync_list_async(db_path=db_path, list_id=list_id, list_name=name, hours=hours, full=full)
+    )
+    label = f" ({result['list_name']})" if result["list_name"] else ""
+    typer.echo(f"Synced {result['synced_count']} tweets from list {list_id}{label}.")

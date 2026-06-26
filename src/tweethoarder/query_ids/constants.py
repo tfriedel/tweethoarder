@@ -29,6 +29,7 @@ FALLBACK_QUERY_IDS: dict[str, str] = {
     "Following": "BEkNpEt5pNETESoqMsTEGA",
     "Followers": "kuFUYP9eV1FPoEy4N-pi7w",
     "HomeLatestTimeline": "iOEZpOdfekFsxSlPQCQtPg",
+    "ListLatestTweetsTimeline": "Iql5aRVyFxNZ-ORcDV_TwQ",
     "UserByScreenName": "xmU6X_CKVnQ5lSrCbAmJsg",
     "UserHighlightsTweets": "tiFMbGHqHkzmL74fSDNzGA",
 }
