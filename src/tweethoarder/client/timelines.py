@@ -407,10 +407,17 @@ def build_home_timeline_url(query_id: str, cursor: str | None = None) -> str:
 
 def parse_home_timeline_response(
     response: dict[str, Any],
-) -> tuple[list[dict[str, Any]], str | None]:
-    """Parse home timeline API response and extract tweets with sort index and next cursor."""
+) -> tuple[list[dict[str, Any]], str | None, str | None]:
+    """Parse home timeline API response and extract tweets with sort index and cursors.
+
+    Returns:
+        (entries, cursor_top, cursor_bottom)
+        cursor_top  — pass on the NEXT incremental call to get only new tweets
+        cursor_bottom — pass to paginate backward (older tweets) within one session
+    """
     entries: list[dict[str, Any]] = []
-    cursor: str | None = None
+    cursor_top: str | None = None
+    cursor_bottom: str | None = None
 
     timeline = response.get("data", {}).get("home", {}).get("home_timeline_urt", {})
 
@@ -431,10 +438,12 @@ def parse_home_timeline_response(
                             "sort_index": entry.get("sortIndex"),
                         }
                     )
+            elif entry_id.startswith("cursor-top-"):
+                cursor_top = content.get("value")
             elif entry_id.startswith("cursor-bottom-"):
-                cursor = content.get("value")
+                cursor_bottom = content.get("value")
 
-    return entries, cursor
+    return entries, cursor_top, cursor_bottom
 
 
 async def fetch_home_timeline_page(
