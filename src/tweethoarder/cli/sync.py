@@ -326,7 +326,7 @@ async def sync_likes_async(
 
         async def refresh_and_get_likes_id() -> str:
             """Refresh query IDs and return the new Likes ID."""
-            new_ids: dict[str, str] = await refresh_query_ids(http_client, targets={"Likes"})
+            new_ids: dict[str, str] = await refresh_query_ids(http_client, targets={"Likes"}, cookies=cookies)
             store.save(new_ids)
             return new_ids["Likes"]
 
@@ -487,7 +487,7 @@ async def sync_bookmarks_async(
 
         async def refresh_and_get_bookmarks_id() -> str:
             """Refresh query IDs and return the new Bookmarks ID."""
-            new_ids: dict[str, str] = await refresh_query_ids(http_client, targets={"Bookmarks"})
+            new_ids: dict[str, str] = await refresh_query_ids(http_client, targets={"Bookmarks"}, cookies=cookies)
             store.save(new_ids)
             return new_ids["Bookmarks"]
 

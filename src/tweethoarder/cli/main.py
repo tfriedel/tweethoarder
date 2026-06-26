@@ -102,8 +102,10 @@ def refresh_ids_command() -> None:
     from tweethoarder.query_ids.store import QueryIdStore
 
     async def run() -> dict[str, str]:
+        from tweethoarder.auth.cookies import resolve_cookies
+        cookies = resolve_cookies()
         async with httpx.AsyncClient() as client:
-            result: dict[str, str] = await refresh_query_ids(client)
+            result: dict[str, str] = await refresh_query_ids(client, cookies=cookies)
             return result
 
     ids = asyncio.run(run())

@@ -66,12 +66,26 @@ def extract_operations(bundle_content: str, targets: set[str]) -> dict[str, str]
     return discovered
 
 
+_HTML_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+}
+
+
 async def refresh_query_ids(
     client: httpx.AsyncClient,
     targets: set[str] | None = None,
     discovery_pages: list[str] | None = None,
+    cookies: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Fetch discovery pages, download bundles, and extract query IDs."""
+    """Fetch discovery pages, download bundles, and extract query IDs.
+
+    Discovery pages return HTML (not JSON), so they need browser-like headers
+    rather than the API Bearer/x-csrf-token headers that `client` carries.
+    A separate httpx client is used for the HTML fetches; `client` is kept for
+    any caller that wants to reuse it for subsequent API calls.
+    """
     from .constants import TARGET_QUERY_ID_OPERATIONS
 
     if discovery_pages is None:
@@ -81,19 +95,28 @@ async def refresh_query_ids(
 
     discovered: dict[str, str] = {}
 
-    # Fetch first discovery page
-    response = await client.get(discovery_pages[0])
-    response.raise_for_status()
-    bundle_urls = extract_bundle_urls(response.text)
+    html_headers = dict(_HTML_HEADERS)
+    if cookies:
+        html_headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in cookies.items())
 
-    # Try each bundle until all targets found
-    for bundle_url in bundle_urls:
-        if len(discovered) == len(targets):
-            break
-        bundle_response = await client.get(bundle_url)
-        bundle_response.raise_for_status()
-        remaining_targets = targets - discovered.keys()
-        new_ids = extract_operations(bundle_response.text, remaining_targets)
-        discovered.update(new_ids)
+    async with httpx.AsyncClient(
+        headers=html_headers, follow_redirects=True
+    ) as html_client:
+        bundle_urls: list[str] = []
+        for page in discovery_pages:
+            response = await html_client.get(page)
+            if response.status_code == 200:
+                bundle_urls = extract_bundle_urls(response.text)
+                if bundle_urls:
+                    break
+
+        for bundle_url in bundle_urls:
+            if len(discovered) == len(targets):
+                break
+            bundle_response = await html_client.get(bundle_url)
+            bundle_response.raise_for_status()
+            remaining_targets = targets - discovered.keys()
+            new_ids = extract_operations(bundle_response.text, remaining_targets)
+            discovered.update(new_ids)
 
     return discovered
