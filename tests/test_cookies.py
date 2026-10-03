@@ -3,6 +3,7 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
 from pytest import MonkeyPatch
 
 
@@ -166,6 +167,8 @@ twid = "u%3D11111"
 def _create_chrome_cookies_db(db_path: Path, cookies: list[tuple[str, str]]) -> None:
     """Create a test Chrome cookies database with unencrypted values."""
     conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE meta (key TEXT, value TEXT)")
+    conn.execute("INSERT INTO meta VALUES ('version', '24')")
     conn.execute("""
         CREATE TABLE cookies (
             creation_utc INTEGER NOT NULL,
@@ -204,8 +207,16 @@ def _create_chrome_cookies_db(db_path: Path, cookies: list[tuple[str, str]]) -> 
     conn.close()
 
 
+@pytest.mark.parametrize(
+    ("browser", "data_dir"),
+    [
+        ("chrome", "google-chrome"),
+        ("brave", "BraveSoftware/Brave-Browser"),
+        ("chromium", "chromium"),
+    ],
+)
 def test_resolve_cookies_from_chrome_when_firefox_fails(
-    monkeypatch: MonkeyPatch, tmp_path: Path
+    monkeypatch: MonkeyPatch, tmp_path: Path, browser: str, data_dir: str
 ) -> None:
     """Should fall back to Chrome when Firefox is not available."""
     from tweethoarder.auth.cookies import resolve_cookies
@@ -215,14 +226,76 @@ def test_resolve_cookies_from_chrome_when_firefox_fails(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty_config"))
 
     # Create a Chrome profile with cookies (no Firefox)
-    chrome_dir = tmp_path / ".config" / "google-chrome" / "Default"
+    chrome_dir = tmp_path / ".config" / data_dir / "Default"
     chrome_dir.mkdir(parents=True)
     _create_chrome_cookies_db(
         chrome_dir / "Cookies",
-        [("auth_token", "chrome_auth_token"), ("ct0", "chrome_ct0")],
+        [("auth_token", f"{browser}_auth_token"), ("ct0", f"{browser}_ct0")],
     )
 
     cookies = resolve_cookies(home_dir=tmp_path)
 
-    assert cookies["auth_token"] == "chrome_auth_token"
-    assert cookies["ct0"] == "chrome_ct0"
+    assert cookies["auth_token"] == f"{browser}_auth_token"
+    assert cookies["ct0"] == f"{browser}_ct0"
+
+
+def test_resolve_cookies_falls_back_when_keyring_unavailable(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    from unittest.mock import patch
+
+    from secretstorage.exceptions import SecretServiceNotAvailableException
+
+    from tweethoarder.auth.cookies import resolve_cookies
+
+    monkeypatch.delenv("TWITTER_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("TWITTER_CT0", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty_config"))
+    brave_dir = tmp_path / ".config" / "BraveSoftware" / "Brave-Browser" / "Default"
+    brave_dir.mkdir(parents=True)
+    brave_db = brave_dir / "Cookies"
+    _create_chrome_cookies_db(brave_db, [("auth_token", ""), ("ct0", "")])
+    with sqlite3.connect(brave_db) as conn:
+        conn.execute("UPDATE cookies SET encrypted_value=?", (b"v11" + b"\x00" * 16,))
+    chrome_dir = tmp_path / ".config" / "google-chrome" / "Default"
+    chrome_dir.mkdir(parents=True)
+    _create_chrome_cookies_db(
+        chrome_dir / "Cookies", [("auth_token", "chrome_auth"), ("ct0", "chrome_ct0")]
+    )
+
+    with patch("secretstorage.dbus_init", side_effect=SecretServiceNotAvailableException()):
+        assert resolve_cookies(home_dir=tmp_path) == {
+            "auth_token": "chrome_auth",
+            "ct0": "chrome_ct0",
+        }
+
+
+@pytest.mark.parametrize(
+    ("sources", "expected"),
+    [('["brave", "chrome"]', "brave"), ('["chrome", "brave"]', "chrome")],
+)
+def test_resolve_cookies_honors_browser_order(
+    monkeypatch: MonkeyPatch, tmp_path: Path, sources: str, expected: str
+) -> None:
+    from tweethoarder.auth.cookies import resolve_cookies
+
+    monkeypatch.delenv("TWITTER_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("TWITTER_CT0", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    config_dir = tmp_path / "config" / "tweethoarder"
+    config_dir.mkdir(parents=True)
+    (config_dir / "config.toml").write_text(f"[auth]\ncookie_sources = {sources}\n")
+    for browser, data_dir in (
+        ("brave", "BraveSoftware/Brave-Browser"),
+        ("chrome", "google-chrome"),
+    ):
+        profile_dir = tmp_path / ".config" / data_dir / "Default"
+        profile_dir.mkdir(parents=True)
+        _create_chrome_cookies_db(
+            profile_dir / "Cookies", [("auth_token", f"{browser}_auth"), ("ct0", f"{browser}_ct0")]
+        )
+
+    assert resolve_cookies(home_dir=tmp_path) == {
+        "auth_token": f"{expected}_auth",
+        "ct0": f"{expected}_ct0",
+    }

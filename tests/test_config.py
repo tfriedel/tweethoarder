@@ -52,7 +52,7 @@ def test_load_config_has_auth_section(tmp_path: Path) -> None:
     from tweethoarder.config import load_config
 
     config = load_config(tmp_path / "nonexistent.toml")
-    assert config.auth.cookie_sources == ["firefox", "chrome"]
+    assert config.auth.cookie_sources == ["firefox", "brave", "chrome", "chromium"]
 
 
 def test_load_config_reads_auth_from_toml(tmp_path: Path) -> None:

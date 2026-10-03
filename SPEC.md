@@ -12,7 +12,7 @@ TweetHoarder is a Python CLI tool for archiving a user's Twitter/X data (likes, 
 | API Approach | Port bird's GraphQL + query ID refresh mechanism to Python |
 | Authentication | Cookie-based (auto-extract from Firefox/Chrome + manual fallback) |
 | Storage | SQLite with incremental sync |
-| Browser Support | Linux only (Firefox + Chrome/Chromium with keyring decryption) |
+| Browser Support | Linux only (Firefox, Brave, Chrome, and Chromium) |
 | Multi-account | Single account only |
 | Media | URLs only (store metadata, no downloading - schema designed for future extension) |
 | Thread Depth | Configurable, on-demand only |
@@ -354,7 +354,7 @@ $ tweethoarder stats
 3. Auto-extract from Firefox:
    - Standard: `~/.mozilla/firefox/*/cookies.sqlite`
    - Snap: `~/snap/firefox/common/.mozilla/firefox/*/cookies.sqlite`
-4. Auto-extract from Chrome (`~/.config/google-chrome/*/Cookies`) with keyring decryption
+4. Auto-extract from Brave, Chrome, or Chromium on Linux, in that order, using the `Default` profile
 
 **Cookies extracted:** `auth_token`, `ct0`, `twid`
 
@@ -362,13 +362,13 @@ $ tweethoarder stats
 
 ```python
 # Firefox: Read directly from SQLite (unencrypted)
-# Chrome: Use secretstorage to decrypt via GNOME Keyring or KDE Wallet
+# Brave, Chrome, Chromium: Read plaintext or decrypt Linux v10/v11 cookies
 
 def extract_firefox_cookies(db_path: Path) -> dict[str, str]:
     """Extract auth_token, ct0, and twid from Firefox cookies.sqlite"""
 
-def extract_chrome_cookies(db_path: Path) -> dict[str, str]:
-    """Extract and decrypt auth_token, ct0, and twid from Chrome Cookies DB"""
+def extract_chrome_cookies(db_path: Path, browser: str = "chrome") -> dict[str, str]:
+    """Extract and decrypt X session cookies from a Chromium browser database"""
 ```
 
 ---
@@ -482,8 +482,8 @@ class SyncCheckpoint:
 # auth_token = "your_auth_token"
 # ct0 = "your_ct0_token"
 
-# Cookie source priority: "firefox", "chrome", "manual"
-cookie_sources = ["firefox", "chrome"]
+# Browser cookie source priority
+cookie_sources = ["firefox", "brave", "chrome", "chromium"]
 
 [sync]
 # Default count limits
@@ -1401,4 +1401,3 @@ SELECT * FROM sync_progress;
 -- Find incomplete thread expansions
 SELECT * FROM threads WHERE is_complete = FALSE;
 ```
-

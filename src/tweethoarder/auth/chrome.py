@@ -1,70 +1,131 @@
-"""Chrome cookie extraction for TweetHoarder."""
+"""Chromium-family cookie extraction for TweetHoarder."""
 
+import hashlib
 import sqlite3
 from pathlib import Path
 
 
-def extract_chrome_cookies(db_path: Path) -> dict[str, str]:
-    """Extract auth_token, ct0, and twid cookies from Chrome Cookies DB."""
+def extract_chrome_cookies(db_path: Path, browser: str = "chrome") -> dict[str, str]:
+    """Extract X session cookies from a Chromium-family Cookies database."""
     with sqlite3.connect(db_path) as conn:
         cursor = conn.execute(
-            "SELECT name, value FROM cookies WHERE name IN ('auth_token', 'ct0', 'twid')"
+            """
+            SELECT host_key, name, value, encrypted_value
+            FROM cookies
+            WHERE name IN ('auth_token', 'ct0', 'twid')
+              AND host_key IN ('x.com', '.x.com', 'twitter.com', '.twitter.com')
+            ORDER BY CASE WHEN host_key IN ('x.com', '.x.com') THEN 0 ELSE 1 END
+            """
         )
-        cookies = {row[0]: row[1] for row in cursor.fetchall()}
+        rows = cursor.fetchall()
+        if any(row[3] for row in rows):
+            _check_cookie_schema(conn, browser)
+
+    cookies: dict[str, str] = {}
+    encryption_keys: dict[bytes, bytes | None] = {b"v10": _derive_encryption_key(b"peanuts")}
+    for host, name, value, encrypted_value in rows:
+        if name in cookies:
+            continue
+        if encrypted_value:
+            version = encrypted_value[:3]
+            if version == b"v11" and version not in encryption_keys:
+                encryption_keys[version] = get_chrome_encryption_key(browser)
+            value = decrypt_chrome_cookie(
+                encrypted_value,
+                encryption_keys.get(version),
+                host=host,
+            )
+        if value:
+            cookies[name] = value
     return cookies
 
 
-def decrypt_chrome_cookie(encrypted_value: bytes, key: bytes) -> str:
-    """Decrypt a Chrome cookie value using AES-128-CBC."""
+def _check_cookie_schema(conn: sqlite3.Connection, browser: str) -> None:
+    """Require schema 24 or later for encrypted cookies."""
+    try:
+        schema_version = int(
+            conn.execute("SELECT value FROM meta WHERE key='version'").fetchone()[0]
+        )
+    except (sqlite3.OperationalError, TypeError, ValueError):
+        schema_version = 0
+    if schema_version < 24:
+        raise ValueError(
+            f"Cannot read {browser.capitalize()}'s encrypted cookies. "
+            "Your cookie database schema might be out of date. "
+            f"Update {browser.capitalize()}, reopen this browser profile, and retry."
+        )
+
+
+def decrypt_chrome_cookie(
+    encrypted_value: bytes,
+    key: bytes | None,
+    *,
+    host: str,
+) -> str:
+    """Decrypt a Linux Chromium cookie using its v10 or v11 key."""
+    from cryptography.hazmat.primitives import padding
     from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-    if encrypted_value[:3] != b"v10":
+    version = encrypted_value[:3]
+    if version not in (b"v10", b"v11") or key is None:
         return ""
 
     ciphertext = encrypted_value[3:]
-    iv = b" " * 16  # Chrome uses space padding for IV
+    if not ciphertext or len(ciphertext) % 16:
+        return ""
+    iv = b" " * 16
 
-    cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
-    decryptor = cipher.decryptor()
-    padded_plaintext = decryptor.update(ciphertext) + decryptor.finalize()
+    try:
+        cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+        decryptor = cipher.decryptor()
+        padded_plaintext = decryptor.update(ciphertext) + decryptor.finalize()
 
-    # Remove PKCS7 padding
-    padding_length = padded_plaintext[-1]
-    plaintext = padded_plaintext[:-padding_length]
+        unpadder = padding.PKCS7(128).unpadder()
+        plaintext = unpadder.update(padded_plaintext) + unpadder.finalize()
+        domain_hash = hashlib.sha256(host.encode("utf-8")).digest()
+        if not plaintext.startswith(domain_hash):
+            return ""
+        return plaintext[len(domain_hash) :].decode("utf-8")
+    except ValueError:
+        return ""
 
-    return plaintext.decode("utf-8")
+
+def _derive_encryption_key(password: bytes) -> bytes:
+    """Derive Chromium's Linux AES-128 key from its keyring password."""
+    return hashlib.pbkdf2_hmac("sha1", password, b"saltysalt", 1, dklen=16)
 
 
-def get_chrome_encryption_key() -> bytes | None:
-    """Get Chrome encryption key from GNOME keyring."""
+def get_chrome_encryption_key(browser: str = "chrome") -> bytes | None:
+    """Get a browser's v11 encryption key from an existing Secret Service item."""
     import secretstorage
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from secretstorage.exceptions import SecretStorageException
 
-    connection = secretstorage.dbus_init()
-    collection = secretstorage.get_default_collection(connection)
-
-    # Search for Chrome Safe Storage item
-    items = list(collection.search_items({"application": "chrome"}))
-    if not items:
+    try:
+        connection = secretstorage.dbus_init()
+        item = next(secretstorage.search_items(connection, {"application": browser}), None)
+        if item is None:
+            return None
+        return _derive_encryption_key(item.get_secret())
+    except SecretStorageException:
         return None
 
-    password = items[0].get_secret()
 
-    # Derive key using PBKDF2 with Chrome's parameters
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA1(),
-        length=16,
-        salt=b"saltysalt",
-        iterations=1,
-    )
-    return kdf.derive(password)
-
-
-def find_chrome_cookies_db(home_dir: Path, profile: str | None = None) -> Path | None:
-    """Find the Chrome Cookies database file."""
+def find_chrome_cookies_db(
+    home_dir: Path, profile: str | None = None, browser: str = "chrome"
+) -> Path | None:
+    """Find a Chromium-family Cookies database file."""
     profile_name = profile or "Default"
-    cookies_path = home_dir / ".config" / "google-chrome" / profile_name / "Cookies"
-    if cookies_path.exists():
-        return cookies_path
+    user_data_dirs = {
+        "brave": home_dir / ".config" / "BraveSoftware" / "Brave-Browser",
+        "chrome": home_dir / ".config" / "google-chrome",
+        "chromium": home_dir / ".config" / "chromium",
+    }
+    user_data_dir = user_data_dirs.get(browser)
+    if user_data_dir is None:
+        return None
+
+    profile_dir = user_data_dir / profile_name
+    for cookies_path in (profile_dir / "Network" / "Cookies", profile_dir / "Cookies"):
+        if cookies_path.exists():
+            return cookies_path
     return None

@@ -12,7 +12,7 @@ TweetHoarder uses cookie-based authentication to access Twitter's internal Graph
 - **Rich HTML export**: Twitter-style design with dark/light themes, virtual scrolling, search/filter, and copy-as-markdown
 - **Multiple exports**: JSON, Markdown, CSV, and searchable HTML
 - **Resume support**: Checkpointing allows interrupted syncs to continue
-- **Browser cookie extraction**: Auto-detect from Firefox or Chrome
+- **Browser cookie extraction**: Automatically find cookies in Firefox, Brave, Chrome, or Chromium on Linux
 - **Rate limit handling**: Adaptive backoff prevents API bans
 - **Offline-first**: All data stored locally in SQLite
 
@@ -33,7 +33,7 @@ uv pip install -e .
 ## Quick Start
 
 ```bash
-# First run - auto-detects cookies from Firefox/Chrome
+# First run: find cookies in your browser
 tweethoarder sync likes
 
 # Sync other collections
@@ -157,7 +157,7 @@ TweetHoarder automatically extracts cookies from your browser. Priority order:
 1. **Environment variables**: `TWITTER_AUTH_TOKEN`, `TWITTER_CT0`, `TWITTER_TWID`
 2. **Config file**: `~/.config/tweethoarder/config.toml`
 3. **Firefox**: Auto-detect from `~/.mozilla/firefox/*/cookies.sqlite`
-4. **Chrome**: Auto-detect with keyring decryption
+4. **Brave, Chrome, or Chromium on Linux**: Read cookies from the `Default` profile, trying browsers in that order
 
 ### Manual Cookie Setup
 
@@ -220,7 +220,7 @@ Config file location: `~/.config/tweethoarder/config.toml`
 
 ```toml
 [auth]
-cookie_sources = ["firefox", "chrome"]  # Priority order
+cookie_sources = ["firefox", "brave", "chrome", "chromium"]  # Priority order
 
 [sync]
 default_tweet_count = 100

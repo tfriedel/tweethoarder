@@ -5,6 +5,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+DEFAULT_COOKIE_SOURCES = ["firefox", "brave", "chrome", "chromium"]
+
 
 def get_config_dir() -> Path:
     """Get the XDG-compliant configuration directory."""
@@ -42,12 +44,10 @@ class Config:
 
 def load_config(path: Path) -> Config:
     """Load configuration from TOML file, with defaults for missing values."""
-    default_cookie_sources = ["firefox", "chrome"]
-
     if not path.exists():
         return Config(
             sync=SyncConfig(),
-            auth=AuthConfig(cookie_sources=default_cookie_sources),
+            auth=AuthConfig(cookie_sources=DEFAULT_COOKIE_SOURCES.copy()),
         )
 
     with path.open("rb") as f:
@@ -60,7 +60,7 @@ def load_config(path: Path) -> Config:
 
     auth_data = data.get("auth", {})
     auth_config = AuthConfig(
-        cookie_sources=auth_data.get("cookie_sources", default_cookie_sources),
+        cookie_sources=auth_data.get("cookie_sources", DEFAULT_COOKIE_SOURCES.copy()),
     )
 
     return Config(sync=sync_config, auth=auth_config)
